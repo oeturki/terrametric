@@ -15,17 +15,24 @@
 
 // 1. Include the SoftwareSerial library so we can use digital pins for serial RX/TX.
 #include <SoftwareSerial.h>
+#include <DHT.h>
 
 // 2. Assign pins for the SoftwareSerial (Bluetooth) module and the PIR sensor.
 #define RxD 8    // Arduino RX pin for Bluetooth
 #define TxD 9    // Arduino TX pin for Bluetooth
 #define PIR_MOTION_SENSOR 2  // PIR sensor input pin
+#define TEMP_HUMID_SENSOR 4  // TH sensor input pin
+#define LIGHT_SENSOR A0
+#define DHTTYPE DHT11
+#define ULTRASONIC_PIN 5
 
 // 3. Instantiate a SoftwareSerial object using pins RxD and TxD.
 SoftwareSerial blueToothSerial(RxD, TxD);
+DHT dht(TEMP_HUMID_SENSOR, DHTTYPE);
 
 void setup()
 {
+  pinMode(ULTRASONIC_PIN, OUTPUT);
   // 4. Start the hardware Serial for debugging and messages to the Serial Monitor.
   Serial.begin(9600);
   //    Some Arduino boards require waiting for Serial to be ready (e.g., Leonardo).
@@ -38,6 +45,8 @@ void setup()
   pinMode(PIR_MOTION_SENSOR, INPUT);
   pinMode(RxD, INPUT);
   pinMode(TxD, OUTPUT);
+  dht.begin();
+  
 
   // 6. Set up the Bluetooth module with the desired baud rate, role, and name.
   setupBlueToothConnection();
@@ -58,8 +67,52 @@ void loop()
 
   // 9. Check if the PIR sensor detects motion (HIGH state). If yes, send "Movement" 
   //    to the connected device via Bluetooth, then delay briefly (200 ms).
-  if (digitalRead(PIR_MOTION_SENSOR)) {
-    blueToothSerial.println("Movement");
+  bool movement = digitalRead(PIR_MOTION_SENSOR);
+  float temp = dht.readTemperature();
+  float humid = dht.readHumidity();
+  int light = analogRead(LIGHT_SENSOR);
+  if (isnan(temp)||isnan(humid)) {
+    blueToothSerial.println("{\"temperature\":null,\"humidity\"null}");
+    Serial.println("{\"temperature\":null,\"humidity\"null}");
+  }
+  else{
+
+
+    long duration;
+    int distance;
+
+    // Send trigger pulse
+    pinMode(ULTRASONIC_PIN, OUTPUT);
+    digitalWrite(ULTRASONIC_PIN, LOW);
+    delayMicroseconds(2);
+
+    digitalWrite(ULTRASONIC_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(ULTRASONIC_PIN, LOW);
+
+    // Switch to input to read echo
+    pinMode(ULTRASONIC_PIN, INPUT);
+
+    duration = pulseIn(ULTRASONIC_PIN, HIGH, 30000);
+    distance = duration * 0.034 / 2;
+    String json = "{";
+    json += "\"temperature\":";
+    json += String(temp, 1);
+    json += ",";
+    json += "\"humidity\":";
+    json += String(humid, 1);
+    json += ",";
+    json += "\"movement\":";
+    json += movement ? "true":"false";
+    json += ",";
+    json += "\"light\":";
+    json += String(light);
+    json += ",";
+    json += "\"distance\":";
+    json += String(distance);
+    json += "}";
+    blueToothSerial.println(json);
+    Serial.println(json);
   }
   delay(200);
 }
@@ -87,7 +140,7 @@ void setupBlueToothConnection()
   delay(2000);
 
   // Assign a name (up to 12 characters). Here, it’s “Slave”.
-  blueToothSerial.print("AT+NAMESlave");
+  blueToothSerial.print("AT+NAMEGroup14");
   delay(2000);
 
   // Enable authentication (AT+AUTH1).
