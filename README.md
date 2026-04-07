@@ -82,7 +82,7 @@ group-14-cm2305-2211/
     └── setup-guide.md
 ```
 
-## Team Responsibilities
+## Team Responsibilities(Ignore this one as it is AI generated, make changes to it for it to reflect your current responsibilities)
 
 | Member    | Area                              | Key Files                                              |
 |-----------|-----------------------------------|--------------------------------------------------------|
