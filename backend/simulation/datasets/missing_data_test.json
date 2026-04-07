@@ -1,0 +1,7 @@
+{
+  "description": "FR10 Test C - Missing data: 10 consecutive readings removed from a stable series",
+  "setpoints": { "temperature": 22.0, "humidity": 55.0, "light": 500 },
+  "tolerances": { "temperature": 1.0, "humidity": 5.0, "light": 75 },
+  "interval_seconds": 60,
+  "readings": []
+}

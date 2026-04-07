@@ -1,0 +1,7 @@
+{
+  "description": "FR10 Test B - Drift anomaly: 22C increasing +0.1C/min for 60 minutes",
+  "setpoints": { "temperature": 22.0, "humidity": 55.0, "light": 500 },
+  "tolerances": { "temperature": 1.0, "humidity": 5.0, "light": 75 },
+  "interval_seconds": 60,
+  "readings": []
+}
