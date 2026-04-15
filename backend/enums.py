@@ -15,6 +15,8 @@ class AlertSeverity(str, Enum):
 class AnomalyType(str, Enum):
     SPIKE = "spike"
     DRIFT = "drift"
+    NOISE = "noise"
+    DROPOUT = "dropout"
     MISSING_DATA = "missing_data"
 
 

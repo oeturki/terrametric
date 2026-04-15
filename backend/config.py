@@ -31,11 +31,25 @@ class Settings(BaseSettings):
     CONTROL_TOLERANCE_TEMP: float = 1.0
     CONTROL_TOLERANCE_HUMIDITY: float = 5.0
 
-    # Anomaly detection
-    SPIKE_THRESHOLD_TEMP: float = 5.0
-    DRIFT_WINDOW_MINUTES: int = 60
-    DRIFT_SLOPE_THRESHOLD: float = 0.1
-    MISSING_DATA_GAP_THRESHOLD: int = 5
+    # Anomaly detection -- drift
+    DRIFT_WINDOW_SIZE: int = 30
+    DRIFT_SLOPE_THRESHOLD_TEMP: float = 0.05
+    DRIFT_SLOPE_THRESHOLD_HUMIDITY: float = 0.5
+    DRIFT_SLOPE_THRESHOLD_LIGHT: float = 3.0
+
+    # Anomaly detection -- noise
+    NOISE_WINDOW_SIZE: int = 10
+    NOISE_BASELINE_TEMP: float = 0.5
+    NOISE_BASELINE_HUMIDITY: float = 2.0
+    NOISE_BASELINE_LIGHT: float = 20.0
+    NOISE_MULTIPLIER_WARNING: float = 3.0
+    NOISE_MULTIPLIER_CRITICAL: float = 5.0
+
+    # Anomaly detection -- dropout
+    DROPOUT_MULTIPLIER: int = 3
+    DROPOUT_BASELINE_READINGS: int = 20
+    DROPOUT_SEVERITY_WARNING: int = 5
+    DROPOUT_SEVERITY_CRITICAL: int = 15
 
     # JWT auth
     SECRET_KEY: str = "CHANGE_ME_IN_PRODUCTION"

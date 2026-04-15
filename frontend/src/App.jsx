@@ -4,6 +4,7 @@ import Sessions from "./pages/Sessions";
 import Plants from "./pages/Plants";
 import Reports from "./pages/Reports";
 import Login from "./pages/Login";
+import AnomalyView from "./components/AnomalyView";
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
         <Route path="/plants" element={<Plants />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/anomalies" element={<AnomalyView />} />
       </Routes>
     </BrowserRouter>
   );
