@@ -12,3 +12,20 @@ Acceptance criteria:
 
 # TODO: compute_esi(readings, setpoints, tolerances) -> { temp_esi, humidity_esi, light_esi }
 # TODO: compute_esi_for_session(session_id) -> ESI result stored in DB
+
+def calculate_esi(readings: list[dict]) -> float:
+    if not readings:
+        return 0.0
+
+    temp_list = [r["temperature"] for r in readings]
+    humidity_list = [r["humidity"] for r in readings]
+
+    def variance(lst):
+        mean = sum(lst) / len(lst)
+        return sum((x - mean) ** 2 for x in lst) / len(lst)
+
+    var_temp = variance(temp_list)
+    var_humidity = variance(humidity_list)
+
+    esi = 100 / (1 + var_temp + var_humidity)
+    return round(esi, 2)
