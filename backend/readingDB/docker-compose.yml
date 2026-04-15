@@ -9,7 +9,7 @@ services:
     volumes:
       - sensor_reading_data:/var/lib/postgresql/data
       - ./migrations:/migrations
-      - ./migration.sh:/migration.sh 
+      - ./migration.sh:/migration.sh
 
 volumes:
   sensor_reading_data:

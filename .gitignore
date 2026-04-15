@@ -41,6 +41,7 @@ desktop.ini
 .env
 .env.local
 .env.*.local
+./backend/readingDB/.env
 
 # Database
 *.db
