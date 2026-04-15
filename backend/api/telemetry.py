@@ -3,15 +3,6 @@ FR1 / FR2 - Environmental Monitoring & Data Logging endpoints.
 Ingest sensor readings, query time-series data.
 """
 
-from fastapi import APIRouter
-
-router = APIRouter()
-
-
-# TODO: POST /readings - ingest a new sensor reading
-# TODO: GET  /readings - query readings with time range filters
-# TODO: GET  /readings/latest - get most recent reading
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from database import get_db
@@ -20,7 +11,7 @@ from services.telemetry_service import create_telemetry, get_telemetry_list, get
 from services.esi_service import calculate_esi
 from services.stress_service import calculate_cumulative_stress
 
-router = APIRouter(prefix="/telemetry", tags=["telemetry"])
+router = APIRouter()
 
 @router.post("/", response_model=TelemetryResponse)
 def add_telemetry(data: TelemetryCreate, db: Session = Depends(get_db)):

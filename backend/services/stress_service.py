@@ -12,7 +12,7 @@ Acceptance criteria:
 # TODO: compute_stress(readings, setpoints, tolerances) -> { temp_stress, humidity_stress, light_stress }
 # TODO: compute_stress_for_session(session_id) -> stress result stored in DB
 
-def calculate_esi(readings: list[dict]) -> float:
+def calculate_cumulative_stress(readings: list[dict]) -> float:
     if not readings:
         return 0.0
 
@@ -26,5 +26,5 @@ def calculate_esi(readings: list[dict]) -> float:
     var_temp = variance(temp_list)
     var_humidity = variance(humidity_list)
 
-    esi = 100 / (1 + var_temp + var_humidity)
-    return round(esi, 2)
+    stress = var_temp + var_humidity
+    return round(stress, 2)
