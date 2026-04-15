@@ -11,23 +11,15 @@ Sampling rate: >= 1 reading/min | Resolution: temp +-0.5C, humidity +-3%RH, ligh
 
 from sqlalchemy.orm import Session
 from models.reading import Telemetry
-from schemas.telemetry import TelemetryCreate
 from datetime import datetime, timedelta
 
-def create_telemetry(db: Session, data: TelemetryCreate):
-    db_data = Telemetry(
-        temperature=data.temperature,
-        humidity=data.humidity,
-        light=data.light
-    )
-    db.add(db_data)
-    db.commit()
-    db.refresh(db_data)
-    return db_data
-
-def get_telemetry_list(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(Telemetry).order_by(Telemetry.timestamp.desc()).offset(skip).limit(limit).all()
-
-def get_recent_telemetry(db: Session, minutes: int = 10):
-    cutoff = datetime.utcnow() - timedelta(minutes=minutes)
-    return db.query(Telemetry).filter(Telemetry.timestamp >= cutoff).order_by(Telemetry.timestamp).all()
+def get_telemetry_timeseries_data(db: Session, hours: int = 24):
+    """
+    Retrieve time-series telemetry data for frontend graph display
+    Only appends new function, no modifications to existing code
+    """
+    cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+    return db.query(Telemetry)\
+             .filter(Telemetry.timestamp >= cutoff_time)\
+             .order_by(Telemetry.timestamp.asc())\
+             .all()

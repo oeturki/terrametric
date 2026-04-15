@@ -21,17 +21,3 @@ from typing import Optional
 #   session_id: int
 #   timestamp: datetime
 #   temperature, humidity, light, movement, distance
-
-# TelemetryCreate - what the client sends when posting a new telemetry reading
-class TelemetryCreate(BaseModel):
-    temperature: float
-    humidity: float
-    light: float
-
-# TelemetryResponse - what the API returns for telemetry data
-class TelemetryResponse(TelemetryCreate):
-    id: int
-    timestamp: datetime
-
-    class Config:
-        from_attributes = True
