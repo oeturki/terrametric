@@ -19,6 +19,11 @@ from services.detectors.rolling_buffer import RollingBuffer
 from services.detectors.drift import DriftDetector
 from services.detectors.noise import NoiseDetector
 from services.detectors.dropout import DropoutDetector
+from services.detectors.spike import SpikeDetector
+from services.detectors.correlation import CorrelationDetector
+from services.detectors.cusum import CUSUMDetector
+from services.detectors.ewma import EWMADetector
+from services.detectors.seasonal import SeasonalDetector
 from services.detectors.base import SensorProfile, AnomalyEvent, SENSOR_PROFILES, Reading
 from services.anomaly_service import AnomalyDetectionService
 from enums import AnomalyType, AlertSeverity
@@ -416,3 +421,287 @@ class TestAnomalyDetectionService:
         assert summary["by_type"]["noise"] == 1
         assert summary["by_variable"]["temperature"] == 1
         assert summary["by_variable"]["humidity"] == 1
+
+
+# ===========================================================================
+# SPIKE DETECTOR TESTS
+# ===========================================================================
+
+class TestSpikeDetector:
+
+    @pytest.fixture
+    def detector(self):
+        return SpikeDetector(profiles=SENSOR_PROFILES, warning_z=4.0, critical_z=6.0)
+
+    def test_normal_reading_no_spike(self, detector):
+        """A value close to the mean should not trigger a spike."""
+        buf = RollingBuffer(max_size=30)
+        for i in range(20):
+            buf.add("temperature", make_timestamp(i), 22.0 + (i % 3) * 0.1)
+        reading = make_reading(1, 20, temperature=22.2)
+        events = detector.detect_reading(reading, buf, session_id=1)
+        assert len(events) == 0
+
+    def test_spike_detected_high(self, detector):
+        """A value far above the mean should trigger a spike."""
+        buf = RollingBuffer(max_size=30)
+        for i in range(20):
+            buf.add("temperature", make_timestamp(i), 22.0)
+        reading = make_reading(1, 20, temperature=40.0)
+        events = detector.detect_reading(reading, buf, session_id=1)
+        spike_events = [e for e in events if e.anomaly_type == AnomalyType.SPIKE and e.variable == "temperature"]
+        assert len(spike_events) >= 1
+
+    def test_hard_bounds_critical(self, detector):
+        """A value outside physical sensor range is always CRITICAL."""
+        buf = RollingBuffer(max_size=30)
+        for i in range(6):
+            buf.add("temperature", make_timestamp(i), 22.0)
+        reading = make_reading(1, 6, temperature=-15.0)
+        events = detector.detect_reading(reading, buf, session_id=1)
+        temp_spikes = [e for e in events if e.variable == "temperature"]
+        assert any(e.severity == AlertSeverity.CRITICAL for e in temp_spikes)
+
+    def test_not_enough_data_skips(self, detector):
+        """Less than MIN_BUFFER_SIZE readings should not trigger z-score spike."""
+        buf = RollingBuffer(max_size=30)
+        for i in range(3):
+            buf.add("temperature", make_timestamp(i), 22.0)
+        reading = make_reading(1, 3, temperature=30.0)
+        events = detector.detect_reading(reading, buf, session_id=1)
+        z_events = [e for e in events if e.detail.get("reason") != "hard_bounds"]
+        assert len(z_events) == 0
+
+
+# ===========================================================================
+# CORRELATION DETECTOR TESTS
+# ===========================================================================
+
+class TestCorrelationDetector:
+
+    @pytest.fixture
+    def detector(self):
+        return CorrelationDetector(
+            window_size=10,
+            warning_threshold=0.3,
+            critical_threshold=0.1,
+            cooldown=0,
+        )
+
+    def test_correlated_readings_no_alert(self, detector):
+        """Temp and humidity that move together should not trigger."""
+        buf = RollingBuffer(max_size=20)
+        for i in range(15):
+            t = 22.0 + i * 0.2
+            h = 55.0 - i * 0.3
+            buf.add("temperature", make_timestamp(i), t)
+            buf.add("humidity", make_timestamp(i), h)
+        reading = make_reading(1, 15, temperature=25.0, humidity=50.5)
+        events = detector.detect_reading(reading, buf, session_id=1)
+        assert len(events) == 0
+
+    def test_uncorrelated_readings_alert(self, detector):
+        """Random humidity (not tracking temperature) should trigger."""
+        import numpy as np
+        rng = np.random.default_rng(42)
+        buf = RollingBuffer(max_size=20)
+        for i in range(15):
+            t = 22.0 + i * 0.1
+            h = rng.uniform(30, 80)
+            buf.add("temperature", make_timestamp(i), t)
+            buf.add("humidity", make_timestamp(i), h)
+        reading = make_reading(1, 15, temperature=23.5, humidity=rng.uniform(30, 80))
+        events = detector.detect_reading(reading, buf, session_id=1)
+        corr_events = [e for e in events if e.anomaly_type == AnomalyType.CORRELATION]
+        assert len(corr_events) >= 1
+
+    def test_not_enough_data_no_alert(self, detector):
+        """Not enough readings to compute correlation should not trigger."""
+        buf = RollingBuffer(max_size=20)
+        for i in range(5):
+            buf.add("temperature", make_timestamp(i), 22.0)
+            buf.add("humidity", make_timestamp(i), 55.0)
+        reading = make_reading(1, 5)
+        events = detector.detect_reading(reading, buf, session_id=1)
+        assert len(events) == 0
+
+
+# ===========================================================================
+# CUSUM DETECTOR TESTS
+# ===========================================================================
+
+class TestCUSUMDetector:
+
+    @pytest.fixture
+    def detector(self):
+        return CUSUMDetector(profiles=SENSOR_PROFILES, min_readings=5)
+
+    def test_stable_readings_no_shift(self, detector):
+        """Stable readings should not trigger a level shift."""
+        buf = RollingBuffer(max_size=30)
+        events = []
+        for i in range(30):
+            buf.add("temperature", make_timestamp(i), 22.0)
+            buf.add("humidity", make_timestamp(i), 55.0)
+            buf.add("light", make_timestamp(i), 500.0)
+            reading = make_reading(1, i)
+            events.extend(detector.detect_reading(reading, buf, session_id=1))
+        shift_events = [e for e in events if e.anomaly_type == AnomalyType.LEVEL_SHIFT]
+        assert len(shift_events) == 0
+
+    def test_step_change_detected(self, detector):
+        """An abrupt step up in temperature should trigger a level shift."""
+        buf = RollingBuffer(max_size=30)
+        events = []
+        for i in range(10):
+            buf.add("temperature", make_timestamp(i), 22.0)
+            buf.add("humidity", make_timestamp(i), 55.0)
+            buf.add("light", make_timestamp(i), 500.0)
+            reading = make_reading(1, i)
+            events.extend(detector.detect_reading(reading, buf, session_id=1))
+        for i in range(10, 25):
+            buf.add("temperature", make_timestamp(i), 30.0)
+            buf.add("humidity", make_timestamp(i), 55.0)
+            buf.add("light", make_timestamp(i), 500.0)
+            reading = make_reading(1, i, temperature=30.0)
+            events.extend(detector.detect_reading(reading, buf, session_id=1))
+        shift_events = [e for e in events if e.anomaly_type == AnomalyType.LEVEL_SHIFT and e.variable == "temperature"]
+        assert len(shift_events) >= 1
+
+    def test_reset_clears_state(self, detector):
+        """After reset, CUSUM accumulators should be cleared."""
+        buf = RollingBuffer(max_size=30)
+        for i in range(10):
+            buf.add("temperature", make_timestamp(i), 22.0)
+            buf.add("humidity", make_timestamp(i), 55.0)
+            buf.add("light", make_timestamp(i), 500.0)
+            reading = make_reading(1, i)
+            detector.detect_reading(reading, buf, session_id=1)
+        detector.reset(session_id=1)
+        assert "1" not in detector._s_high
+
+
+# ===========================================================================
+# EWMA DETECTOR TESTS
+# ===========================================================================
+
+class TestEWMADetector:
+
+    @pytest.fixture
+    def detector(self):
+        return EWMADetector(profiles=SENSOR_PROFILES, lam=0.2, L=3.0, min_readings=5, cooldown=0)
+
+    def test_stable_readings_no_breach(self, detector):
+        """Stable readings around setpoint should stay within EWMA control limits."""
+        buf = RollingBuffer(max_size=30)
+        events = []
+        for i in range(30):
+            buf.add("temperature", make_timestamp(i), 22.0)
+            buf.add("humidity", make_timestamp(i), 55.0)
+            buf.add("light", make_timestamp(i), 500.0)
+            reading = make_reading(1, i)
+            events.extend(detector.detect_reading(reading, buf, session_id=1))
+        ewma_events = [e for e in events if e.anomaly_type == AnomalyType.EWMA_BREACH]
+        assert len(ewma_events) == 0
+
+    def test_sustained_shift_triggers_breach(self, detector):
+        """Sustained readings well above the mean should breach EWMA limits."""
+        buf = RollingBuffer(max_size=30)
+        events = []
+        for i in range(10):
+            buf.add("temperature", make_timestamp(i), 22.0)
+            buf.add("humidity", make_timestamp(i), 55.0)
+            buf.add("light", make_timestamp(i), 500.0)
+            reading = make_reading(1, i)
+            events.extend(detector.detect_reading(reading, buf, session_id=1))
+        for i in range(10, 30):
+            buf.add("temperature", make_timestamp(i), 28.0)
+            buf.add("humidity", make_timestamp(i), 55.0)
+            buf.add("light", make_timestamp(i), 500.0)
+            reading = make_reading(1, i, temperature=28.0)
+            events.extend(detector.detect_reading(reading, buf, session_id=1))
+        ewma_events = [e for e in events if e.anomaly_type == AnomalyType.EWMA_BREACH]
+        assert len(ewma_events) >= 1
+
+    def test_reset_clears_ewma_state(self, detector):
+        """Reset should clear all per-session state."""
+        buf = RollingBuffer(max_size=30)
+        for i in range(10):
+            buf.add("temperature", make_timestamp(i), 22.0)
+            buf.add("humidity", make_timestamp(i), 55.0)
+            buf.add("light", make_timestamp(i), 500.0)
+            reading = make_reading(1, i)
+            detector.detect_reading(reading, buf, session_id=1)
+        detector.reset(session_id=1)
+        assert "1" not in detector._ewma
+
+
+# ===========================================================================
+# SEASONAL DETECTOR TESTS
+# ===========================================================================
+
+class TestSeasonalDetector:
+
+    @pytest.fixture
+    def detector(self):
+        return SeasonalDetector(
+            threshold_sigma=3.0,
+            critical_sigma=5.0,
+            min_per_hour=3,
+            min_hours=2,
+        )
+
+    def test_learning_phase_no_alerts(self, detector):
+        """During the learning phase (not enough data), no alerts should fire."""
+        reading = Reading(
+            session_id=1,
+            timestamp=datetime(2026, 4, 7, 10, 0, 0),
+            temperature=22.0, humidity=55.0, light=500,
+        )
+        events = detector.detect_reading(reading, None, session_id=1)
+        assert len(events) == 0
+
+    def test_normal_reading_after_baseline_no_alert(self, detector):
+        """After learning, a value within normal range for the hour should pass."""
+        base = datetime(2026, 4, 7, 0, 0, 0)
+        for hour in range(3):
+            for rep in range(4):
+                r = Reading(
+                    session_id=1,
+                    timestamp=base.replace(hour=hour, minute=rep),
+                    temperature=22.0, humidity=55.0,
+                    light=500 + hour * 10,
+                )
+                detector.detect_reading(r, None, session_id=1)
+
+        test_reading = Reading(
+            session_id=1,
+            timestamp=base.replace(hour=1, minute=30),
+            temperature=22.0, humidity=55.0,
+            light=512,
+        )
+        events = detector.detect_reading(test_reading, None, session_id=1)
+        assert len(events) == 0
+
+    def test_abnormal_light_after_baseline_alerts(self, detector):
+        """After learning, a value way outside expected should fire."""
+        base = datetime(2026, 4, 7, 0, 0, 0)
+        for hour in range(3):
+            for rep in range(4):
+                r = Reading(
+                    session_id=1,
+                    timestamp=base.replace(hour=hour, minute=rep),
+                    temperature=22.0, humidity=55.0,
+                    light=500,
+                )
+                detector.detect_reading(r, None, session_id=1)
+
+        test_reading = Reading(
+            session_id=1,
+            timestamp=base.replace(hour=0, minute=30),
+            temperature=22.0, humidity=55.0,
+            light=900,
+        )
+        events = detector.detect_reading(test_reading, None, session_id=1)
+        seasonal_events = [e for e in events if e.anomaly_type == AnomalyType.SEASONAL]
+        assert len(seasonal_events) >= 1

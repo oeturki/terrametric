@@ -317,31 +317,68 @@ If the team later swaps DHT11 for BME280, only the profile changes.
 
 ---
 
-## 7. Performance
+## 7. Performance and computational complexity
 
-- **Per-reading cost:** 3 detectors x 3 variables = 9 checks. Each O(N) where N <= 30. Total ~270 ops. Negligible.
-- **Memory:** 30 readings x 3 variables x 50 sessions = ~4500 floats = under 40KB.
-- **Latency:** Sub-millisecond per reading. No blocking I/O in detection path.
+The orchestrator runs **eight** statistical detectors per incoming reading (dropout, spike, drift, noise, correlation, CUSUM level-shift, EWMA, seasonal on light). Each detector uses **fixed-size windows** (`RollingBuffer` with maxlen on the order of 10–30 samples), so work per reading is **bounded** and does **not** grow with total experiment length.
 
----
+- **Per-reading cost:** Roughly “sum over detectors of O(window)” — small NumPy operations on vectors of length ≤ 30. At typical greenhouse sampling (e.g. one reading per minute), CPU time is negligible on a Raspberry Pi class device compared to I/O (network, database).
+- **Memory:** One buffer per session per monitored stream; eviction is automatic when the deque is full. Order tens of kilobytes for many concurrent sessions, not megabytes.
+- **Latency:** The detection path is synchronous and contains **no** database or HTTP calls inside `process_reading()` itself. Persistence and alerts are integration concerns for production wiring.
 
-## 8. Known Limitations
-
-- **Buffer lost on restart.** Rolling window resets if backend restarts. Refills within 30 readings.
-- **No cross-variable correlation.** Each variable analysed independently.
-- **Dynamic interval estimation.** Dropout baseline computed from first 20 readings. Stale if rate changes mid-session.
-- **DHT11 repeated values.** DHT11 updates every ~2s; faster polling produces duplicates that deflate noise std dev. Mitigated by deduplicating consecutive identical values.
-- **LDR not calibrated.** Light thresholds in raw analog units, not lux.
-- **No spike detection.** Deferred. Can be added as a 4th detector using z-score.
+**Simulation endpoint** (`POST /api/anomalies/simulate`) replays an entire synthetic series in a loop; runtime scales **linearly** with the number of generated points and is intended for validation and demos, not for batch reprocessing of years of archives.
 
 ---
 
-## 9. Design Decisions and Justifications
+## 8. Known limitations (honest scope)
 
-| Decision | Chosen | Alternatives Considered | Why |
-|----------|--------|------------------------|-----|
-| Drift algorithm | Linear regression slope | CUSUM, EWMA | Simplest to implement, explain, and test. CUSUM is better for detecting small shifts but harder to tune. |
-| Noise algorithm | Rolling std dev | Wavelet decomposition, Kalman filter | Std dev is well-understood and sufficient for DHT11-class sensors. Wavelet is overkill. |
-| Window units | Readings (not minutes) | Time-based windows | Decouples detection from sampling rate. Works regardless of Node-RED throttling. |
-| Buffer persistence | In-memory only | Redis, DB-backed | University project scope. 30-reading refill time is acceptable. |
-| Cross-variable detection | Not implemented | Correlation matrix | Scope control. Independent detection covers primary use cases. |
+- **Buffer state is in-memory.** Rolling windows and detector-specific state (CUSUM, EWMA, seasonal baselines) reset if the backend process restarts. Recovery is automatic as new readings arrive, but the **warm-up** period must elapse again before behaviour matches pre-restart.
+- **Demo API store is in-memory.** `GET /api/anomalies` reflects the last simulation or pipeline run held in process RAM until cleared or the server restarts. Production would use the `Anomaly` SQLAlchemy model and pagination.
+- **Dropout baseline** is learned from the first N inter-arrival gaps (median). If the **true** sampling interval changes mid-session (e.g. Node-RED throttle edited), the baseline can become stale until reset or enough new structure is observed.
+- **LDR light** is treated in raw ADC-style units (0–1023), not calibrated lux; seasonal and noise baselines are therefore relative to the hardware as deployed.
+- **Multiple detectors can fire on the same reading** (e.g. drift plus EWMA plus noise under aggressive scenarios). The UI does not yet merge these into a single “root cause” narrative; that would be a product-layer enhancement (alert fusion).
+- **No automated false-positive learning** (no feedback loop from user labels into model weights). Tuning remains threshold- and window-driven.
+
+---
+
+## 9. False positives: what reduces them (and what does not)
+
+**There is no separate “false positive classifier”.** Mitigation is by **design of rules**, **thresholds**, and **lightweight state machines**:
+
+| Mechanism | Where | Effect |
+|-----------|--------|--------|
+| **Thresholds and severity tiers** | Drift slope vs profile; noise ratio vs baseline × multipliers; spike z-score / hard bounds; dropout gap ratio bands (INFO / WARNING / CRITICAL) | Reduces trivial flags; wrong tuning increases either false positives or false negatives. |
+| **Noise: consecutive duplicate stripping** | `NoiseDetector` | Prevents DHT11-style repeated samples from **deflating** measured variance so noise is not under- or over-estimated. |
+| **Dropout: learning phase** | `DropoutDetector` | No gap alerts until enough intervals collected; **median** interval resists one bad startup gap. |
+| **Correlation: cooldown** | `CorrelationDetector` | After an alert, suppresses repeat correlation events for N readings to avoid log spam. |
+| **EWMA: cooldown** | `EWMADetector` | Same idea after a control-limit breach. |
+| **CUSUM reset** | `CUSUMDetector` | After a level-shift trigger, accumulators reset so one physical change does not generate unbounded repeats. |
+| **Seasonal: minimum samples per hour** | `SeasonalDetector` | Avoids comparing to an hour-of-day baseline until enough data exists for that hour. |
+
+**Not implemented:** user-confirmed “this was a false alarm” stored in the database, Bayesian model averaging, or ensemble voting across detectors. The **TerraMetric** HTML UI adds **client-side “reviewed”** flags (localStorage) so operators can hide events they have triaged during a session; that does not change backend scoring.
+
+---
+
+## 10. TerraMetric anomalies UI (operator aids)
+
+The monolithic `Terrametric web.html` anomalies tab complements the API with:
+
+- **Per-sensor charts** (separate Y-scales) and optional anomaly markers.
+- **Score timeline** — per-timestamp sum of severity weights for a quick “when did things get loud?” view.
+- **Filters** (type, severity, sensor), **text search**, **group-by-timestamp** mode, **pagination (load more)**, **mark reviewed** (persists in `localStorage` under `terrametric-anom-ack`), **focus timestamp** (highlights matching rows for cross-checking with charts).
+- **CSV / print** export for lab notebooks.
+
+These are **presentation and triage** layers; they do not replace scientific validation of thresholds against real chamber data.
+
+---
+
+## 11. Design decisions and justifications
+
+| Decision | Chosen | Alternatives considered | Why |
+|----------|--------|-------------------------|-----|
+| Drift algorithm | Linear regression slope on a window | CUSUM-only | Explainable in coursework; CUSUM/EWMA added separately for level shifts and small sustained moves. |
+| Noise algorithm | Rolling std dev vs profile baseline | Spectral / wavelet | Matches sensor noise story; dedup handles DHT11 sampling quirks. |
+| Spike algorithm | z-score + hard physical bounds | IQR only | Catches impossible single samples (glitch bytes) and statistical outliers. |
+| Cross-variable | Rolling Pearson r on temp vs humidity | Full multivariate model | Cheap and interpretable for one dual-sensor module. |
+| Window units | Readings (not wall-clock) | Time-based only | Stable when sampling interval drifts slightly; dropout still uses real timestamps. |
+| Buffer persistence | In-memory | Redis / DB | Project scope; document upgrade path for production. |
+| Detector list | Pluggable `BaseDetector` list | Monolithic service | Open/closed: new rules append without rewriting orchestrator. |

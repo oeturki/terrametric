@@ -106,6 +106,69 @@ def inject_gap(
     return readings[:start_index] + readings[start_index + gap_count:]
 
 
+def inject_spike(
+    readings: list[dict],
+    variable: str,
+    count: int = 3,
+    magnitude: float = 15.0,
+    seed: int = 42,
+) -> list[dict]:
+    """
+    Insert `count` extreme outlier spikes at random positions.
+    Each spike adds +/- magnitude to the current value.
+    """
+    rng = np.random.default_rng(seed)
+    indices = rng.choice(len(readings), size=min(count, len(readings)), replace=False)
+    for idx in indices:
+        sign = rng.choice([-1, 1])
+        val = readings[idx][variable]
+        spiked = val + sign * magnitude
+        if variable == "light":
+            readings[idx][variable] = max(0, int(spiked))
+        else:
+            readings[idx][variable] = round(float(spiked), 1)
+    return readings
+
+
+def inject_level_shift(
+    readings: list[dict],
+    variable: str,
+    shift_amount: float = 8.0,
+    start_fraction: float = 0.5,
+) -> list[dict]:
+    """
+    Apply a permanent step change from start_fraction of the way through.
+    Simulates a greenhouse door opening or heater failure.
+    """
+    start_idx = int(len(readings) * start_fraction)
+    for i in range(start_idx, len(readings)):
+        val = readings[i][variable]
+        shifted = val + shift_amount
+        if variable == "light":
+            readings[i][variable] = max(0, int(shifted))
+        else:
+            readings[i][variable] = round(float(shifted), 1)
+    return readings
+
+
+def inject_correlation_break(
+    readings: list[dict],
+    seed: int = 42,
+    start_fraction: float = 0.4,
+    end_fraction: float = 0.7,
+) -> list[dict]:
+    """
+    In the affected region, randomise humidity independently of temperature
+    to break the natural temp-humidity correlation.
+    """
+    rng = np.random.default_rng(seed)
+    start_idx = int(len(readings) * start_fraction)
+    end_idx = int(len(readings) * end_fraction)
+    for i in range(start_idx, end_idx):
+        readings[i]["humidity"] = round(float(rng.uniform(20.0, 90.0)), 1)
+    return readings
+
+
 def save_dataset(readings: list[dict], filepath: str, description: str, **meta) -> None:
     """Save a dataset to JSON with metadata."""
     data = {

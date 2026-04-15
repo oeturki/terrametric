@@ -18,6 +18,10 @@ class AnomalyType(str, Enum):
     NOISE = "noise"
     DROPOUT = "dropout"
     MISSING_DATA = "missing_data"
+    CORRELATION = "correlation"
+    LEVEL_SHIFT = "level_shift"
+    EWMA_BREACH = "ewma_breach"
+    SEASONAL = "seasonal"
 
 
 class TriggerType(str, Enum):

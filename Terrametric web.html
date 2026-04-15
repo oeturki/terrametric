@@ -235,6 +235,23 @@ body{font-family:'DM Mono',monospace;background:var(--cream);color:var(--bark);m
 .status-pill.active{background:#ffe0e0;color:#8a1010;}
 .status-pill.resolved{background:#e0f8e0;color:#1a5020;}
 
+/* ── ANOMALIES: triage UI ── */
+.anom-help-panel{background:linear-gradient(135deg,#f0f6e8 0%,#faf8f0 100%);border:1px solid #c8dda0;border-radius:12px;padding:14px 18px;margin-bottom:18px;font-size:10px;line-height:1.65;color:var(--bark-mid);}
+.anom-help-panel strong{color:var(--bark);font-family:'Syne',sans-serif;font-size:10px;letter-spacing:.06em;}
+.anom-focus-bar{display:none;align-items:center;justify-content:space-between;gap:12px;background:#fff8e8;border:1px solid #e0c880;border-radius:10px;padding:10px 16px;margin-bottom:14px;font-size:10px;}
+.anom-focus-bar.visible{display:flex;}
+.anom-focus-bar .anom-focus-label{font-family:'DM Mono',monospace;color:var(--bark);}
+.tbl-row.anom-row-focus{box-shadow:inset 3px 0 0 var(--olive);background:rgba(122,140,30,0.06);}
+.anom-group{border-bottom:1px solid var(--cream-dark);}
+.anom-group-head{display:flex;align-items:center;gap:12px;padding:12px 18px;cursor:pointer;background:var(--cream);font-size:11px;}
+.anom-group-head:hover{background:#ebe6d8;}
+.anom-group-head .anom-group-meta{color:var(--bark-mid);font-size:10px;}
+.anom-group-body{display:none;padding:0 16px 14px 44px;background:#faf8f0;border-bottom:1px solid var(--cream-dark);}
+.anom-group-body.open{display:block;}
+.anom-mini-row{display:grid;grid-template-columns:1fr 72px 70px 72px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--cream-dark);font-size:10px;}
+.anom-mini-row:last-child{border-bottom:none;}
+.anom-load-more-wrap{text-align:center;padding:14px;border-top:1px solid var(--cream-dark);}
+
 /* ── CONTROL ── */
 .control-top{display:flex;align-items:center;gap:16px;margin-bottom:28px;padding:16px 20px;background:white;border:1px solid var(--cream-dark);border-radius:12px;flex-wrap:wrap;}
 .group-label{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--bark-mid);}
@@ -514,6 +531,9 @@ textarea.detail-input{resize:vertical;min-height:72px;}
           <option value="drift" selected>Drift</option>
           <option value="noise">Noise</option>
           <option value="dropout">Dropout</option>
+          <option value="spike">Spike</option>
+          <option value="level_shift">Level Shift</option>
+          <option value="correlation">Correlation Break</option>
           <option value="all">All Combined</option>
         </select>
         <span style="font-size:9px;letter-spacing:.12em;color:var(--bark-mid);">Duration:</span>
@@ -525,19 +545,48 @@ textarea.detail-input{resize:vertical;min-height:72px;}
         </div>
       </div>
 
-      <!-- Summary cards -->
-      <div class="anomaly-summary" style="grid-template-columns:repeat(4,1fr);">
-        <div class="anom-card"><div class="anom-icon">📊</div><div><div class="anom-count" id="anomTotal" style="color:var(--bark)">--</div><div class="anom-label">Total Events</div></div></div>
-        <div class="anom-card"><div class="anom-icon">🔥</div><div><div class="anom-count" id="anomSpikes" style="color:var(--danger)">--</div><div class="anom-label">Noise Spikes</div></div></div>
-        <div class="anom-card"><div class="anom-icon">📉</div><div><div class="anom-count" id="anomMissing" style="color:var(--alert)">--</div><div class="anom-label">Dropouts</div></div></div>
-        <div class="anom-card"><div class="anom-icon">📈</div><div><div class="anom-count" id="anomDrift" style="color:var(--sky)">--</div><div class="anom-label">Drift Events</div></div></div>
+      <!-- Scenario info panel (collapsed by default) -->
+      <div id="anomScenarioInfo" style="display:none;background:#f9f7ee;border:1px solid var(--cream-dark);border-radius:12px;padding:16px 20px;margin-bottom:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.1em;">Scenario Details</span>
+          <span id="anomScenarioTag" class="sev-pill info" style="font-size:9px;"></span>
+        </div>
+        <p id="anomScenarioDesc" style="font-size:11px;color:var(--bark-mid);line-height:1.6;margin:0;"></p>
       </div>
 
-      <!-- Simulation chart -->
-      <div class="graph-card" style="margin-bottom:24px;position:relative;" id="anomChartCard">
-        <div class="card-header">
-          <span class="card-title">📈 Simulated Telemetry</span>
-          <div style="display:flex;gap:8px;" id="anomSensorPills"></div>
+      <!-- Summary cards: 8 types -->
+      <div class="anomaly-summary" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
+        <div class="anom-card"><div class="anom-icon">📊</div><div><div class="anom-count" id="anomTotal" style="color:var(--bark)">--</div><div class="anom-label">Total Events</div></div></div>
+        <div class="anom-card"><div class="anom-icon">⚡</div><div><div class="anom-count" id="anomSpike" style="color:var(--danger)">--</div><div class="anom-label">Spikes</div></div></div>
+        <div class="anom-card"><div class="anom-icon">📈</div><div><div class="anom-count" id="anomDrift" style="color:var(--sky)">--</div><div class="anom-label">Drift</div></div></div>
+        <div class="anom-card"><div class="anom-icon">🔥</div><div><div class="anom-count" id="anomNoise" style="color:#a83232">--</div><div class="anom-label">Noise</div></div></div>
+      </div>
+      <div class="anomaly-summary" style="grid-template-columns:repeat(4,1fr);margin-bottom:24px;">
+        <div class="anom-card"><div class="anom-icon">📉</div><div><div class="anom-count" id="anomDropout" style="color:var(--alert)">--</div><div class="anom-label">Dropouts</div></div></div>
+        <div class="anom-card"><div class="anom-icon">🔗</div><div><div class="anom-count" id="anomCorrelation" style="color:#6a4ca0">--</div><div class="anom-label">Correlation</div></div></div>
+        <div class="anom-card"><div class="anom-icon">🔀</div><div><div class="anom-count" id="anomLevelShift" style="color:#2a7a4a">--</div><div class="anom-label">Level Shift</div></div></div>
+        <div class="anom-card"><div class="anom-icon">📐</div><div><div class="anom-count" id="anomEwma" style="color:#5a6a1a">--</div><div class="anom-label">EWMA Breach</div></div></div>
+      </div>
+
+      <!-- Severity breakdown bar -->
+      <div id="anomSevBar" style="display:none;background:white;border:1px solid var(--cream-dark);border-radius:12px;padding:14px 20px;margin-bottom:20px;">
+        <div style="display:flex;align-items:center;gap:18px;margin-bottom:10px;">
+          <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.08em;">Severity Breakdown</span>
+          <span id="anomSevCounts" style="font-size:10px;font-family:'DM Mono',monospace;color:var(--bark-mid);"></span>
+        </div>
+        <div style="display:flex;height:10px;border-radius:6px;overflow:hidden;gap:2px;" id="anomSevBarInner"></div>
+      </div>
+
+      <!-- Stacked per-sensor charts -->
+      <div class="graph-card" style="margin-bottom:20px;position:relative;" id="anomChartCard">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
+          <span class="card-title">Per-Sensor Time Series</span>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <label style="font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:var(--bark-mid);cursor:pointer;display:flex;align-items:center;gap:4px;">
+              <input type="checkbox" id="anomShowMarkers" checked onchange="renderAnomCharts()" style="accent-color:var(--olive);"> Markers
+            </label>
+            <div id="anomSensorPills" style="display:flex;gap:8px;"></div>
+          </div>
         </div>
         <div id="anomChartWrap">
           <div style="padding:32px;text-align:center;font-size:11px;color:var(--bark-mid);">
@@ -547,35 +596,73 @@ textarea.detail-input{resize:vertical;min-height:72px;}
         </div>
       </div>
 
+      <!-- Anomaly score timeline -->
+      <div class="graph-card" style="margin-bottom:20px;" id="anomScoreCard">
+        <div class="card-header"><span class="card-title">Anomaly Score Timeline</span></div>
+        <div id="anomFocusBar" class="anom-focus-bar">
+          <span class="anom-focus-label" id="anomFocusLabel"></span>
+          <button type="button" class="btn btn-ghost" style="font-size:9px;padding:4px 10px;" onclick="clearAnomFocus()">Clear focus</button>
+        </div>
+        <div id="anomScoreWrap">
+          <div style="padding:24px;text-align:center;font-size:11px;color:var(--bark-mid);">Scores populate after simulation</div>
+        </div>
+      </div>
+
+      <div class="anom-help-panel" id="anomHelpPanel">
+        <strong>How to read this page</strong><br>
+        <strong>Score timeline</strong> adds severity weights per minute so you can see <em>when</em> alarms cluster, not only raw sensor curves.
+        Several detectors may fire on the same timestamp — that is expected under stress scenarios; use <strong>Group by time</strong> to collapse them.
+        <strong>Reviewed</strong> hides events locally (browser only) for triage; it does not change backend detection.
+      </div>
+
       <!-- Filter row -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:10px;">
         <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.08em;">⚠ Event Log <span style="font-size:10px;font-family:'DM Mono',monospace;color:var(--bark-mid);font-weight:400;" id="anomLogCount"></span></div>
-        <button class="btn btn-ghost" onclick="exportAnomalyCSV()" style="font-size:10px;padding:5px 12px;">Export CSV</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-ghost" onclick="exportAnomalyCSV()" style="font-size:10px;padding:5px 12px;">Export CSV</button>
+          <button class="btn btn-ghost" onclick="printAnomalyReport()" style="font-size:10px;padding:5px 12px;">Print Report</button>
+          <button class="btn btn-ghost" onclick="clearAnomAcknowledgements()" style="font-size:10px;padding:5px 12px;">Clear reviewed</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+        <input type="search" id="anomSearch" class="select-pill" placeholder="Search description, type, sensor…" style="min-width:200px;flex:1;max-width:320px;" oninput="anomResetVisible(); renderAnomalyTable();">
+        <label style="font-size:10px;color:var(--bark-mid);display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;">
+          <input type="checkbox" id="anomGroupByTime" onchange="anomResetVisible(); renderAnomalyTable();" style="accent-color:var(--olive);"> Group by time
+        </label>
+        <label style="font-size:10px;color:var(--bark-mid);display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;">
+          <input type="checkbox" id="anomHideAck" onchange="renderAnomalyTable();" style="accent-color:var(--olive);"> Hide reviewed
+        </label>
       </div>
       <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
-        <select class="select-pill" id="anomFilterType" onchange="renderAnomalyTable()">
+        <select class="select-pill" id="anomFilterType" onchange="anomResetVisible(); renderAnomalyTable()">
           <option value="">All Types</option>
+          <option value="spike">Spike</option>
           <option value="drift">Drift</option>
           <option value="noise">Noise</option>
           <option value="dropout">Dropout</option>
+          <option value="correlation">Correlation</option>
+          <option value="level_shift">Level Shift</option>
+          <option value="ewma_breach">EWMA Breach</option>
+          <option value="seasonal">Seasonal</option>
         </select>
-        <select class="select-pill" id="anomFilterSev" onchange="renderAnomalyTable()">
+        <select class="select-pill" id="anomFilterSev" onchange="anomResetVisible(); renderAnomalyTable()">
           <option value="">All Severities</option>
           <option value="danger">Critical</option>
           <option value="warning">Warning</option>
           <option value="info">Info</option>
         </select>
-        <select class="select-pill" id="anomFilterSensor" onchange="renderAnomalyTable()">
+        <select class="select-pill" id="anomFilterSensor" onchange="anomResetVisible(); renderAnomalyTable()">
           <option value="">All Sensors</option>
           <option value="temperature">Temperature</option>
           <option value="humidity">Humidity</option>
           <option value="light">Light</option>
+          <option value="temperature+humidity">Temp+Humidity</option>
         </select>
       </div>
 
-      <!-- Event table -->
+      <!-- Event table with expandable drill-down rows -->
       <div class="anomaly-table">
-        <div class="tbl-head" style="grid-template-columns:140px 80px 100px 1fr 90px 80px;"><span>Timestamp</span><span>Type</span><span>Sensor</span><span>Description</span><span>Severity</span><span>Status</span></div>
+        <div class="tbl-head" style="grid-template-columns:30px 130px 90px 100px 1fr 80px 70px;"><span></span><span>Timestamp</span><span>Type</span><span>Sensor</span><span>Description</span><span>Severity</span><span>Status</span></div>
         <div id="anomalyBody">
           <div style="padding:32px;text-align:center;font-size:11px;color:var(--bark-mid);">
             <div style="font-size:28px;margin-bottom:8px;">📡</div>
@@ -1081,6 +1168,120 @@ async function fetchAlerts() {
 }
 
 // ── Anomalies ────────────────────────────────────────────────
+const ANOM_PAGE_SIZE = 45;
+let anomLogVisible = ANOM_PAGE_SIZE;
+let anomAckKeys = new Set();
+let anomFocusTs = null;
+
+function anomEventKey(evt) {
+  return (evt.timestamp || '') + '|' + (evt.type || '') + '|' + (evt.sensor || '') + '|' + String(evt.description || '').slice(0, 120);
+}
+function escapeHtml(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function loadAnomAckFromStorage() {
+  try {
+    const raw = localStorage.getItem('terrametric-anom-ack');
+    if (raw) anomAckKeys = new Set(JSON.parse(raw));
+  } catch (e) { anomAckKeys = new Set(); }
+}
+function saveAnomAckToStorage() {
+  try {
+    localStorage.setItem('terrametric-anom-ack', JSON.stringify([...anomAckKeys].slice(-800)));
+  } catch (e) {}
+}
+function anomResetVisible() { anomLogVisible = ANOM_PAGE_SIZE; }
+function anomLoadMore() { anomLogVisible += ANOM_PAGE_SIZE; renderAnomalyTable(); }
+
+function anomAcknowledge(key) {
+  anomAckKeys.add(key);
+  saveAnomAckToStorage();
+  renderAnomalyTable();
+}
+function clearAnomAcknowledgements() {
+  if (!anomAckKeys.size) { fireAlert('info', 'Nothing to clear', 'No reviewed marks in this browser.', 2500); return; }
+  if (!confirm('Clear all reviewed marks from this browser?')) return;
+  anomAckKeys.clear();
+  saveAnomAckToStorage();
+  renderAnomalyTable();
+}
+function clearAnomFocus() {
+  anomFocusTs = null;
+  const bar = document.getElementById('anomFocusBar');
+  if (bar) bar.classList.remove('visible');
+  renderAnomalyTable();
+}
+function anomSetFocus(ts) {
+  anomFocusTs = ts;
+  const bar = document.getElementById('anomFocusBar');
+  const lab = document.getElementById('anomFocusLabel');
+  if (bar && lab) {
+    lab.textContent = 'Focused: ' + new Date(ts).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    bar.classList.add('visible');
+  }
+  renderAnomalyTable();
+}
+
+function initAnomalyBodyDelegateOnce() {
+  const body = document.getElementById('anomalyBody');
+  if (!body || body.dataset.anomDel) return;
+  body.dataset.anomDel = '1';
+  body.addEventListener('click', function(ev) {
+    const ack = ev.target.closest('[data-anom-ack]');
+    if (ack) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const k = ack.getAttribute('data-anom-ack');
+      if (k) anomAcknowledge(decodeURIComponent(k));
+      return;
+    }
+    const foc = ev.target.closest('[data-anom-focus-ts]');
+    if (foc) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      anomSetFocus(decodeURIComponent(foc.getAttribute('data-anom-focus-ts') || ''));
+      return;
+    }
+    const fh = ev.target.closest('.anom-group-head');
+    if (fh && !ev.target.closest('button')) {
+      ev.preventDefault();
+      const bodyEl = fh.nextElementSibling;
+      if (bodyEl && bodyEl.classList.contains('anom-group-body')) {
+        bodyEl.classList.toggle('open');
+        const chev = fh.querySelector('.anom-grp-chev');
+        if (chev) chev.textContent = bodyEl.classList.contains('open') ? '▾' : '▸';
+      }
+    }
+  });
+}
+
+function anomCollectFiltered() {
+  const typeF = document.getElementById('anomFilterType')?.value || '';
+  const sevF = document.getElementById('anomFilterSev')?.value || '';
+  const sensorF = document.getElementById('anomFilterSensor')?.value || '';
+  const search = (document.getElementById('anomSearch')?.value || '').trim().toLowerCase();
+  let filtered = anomalyLog.slice();
+  if (typeF) filtered = filtered.filter(e => e.type === typeF);
+  if (sevF) filtered = filtered.filter(e => e.severity === sevF);
+  if (sensorF) filtered = filtered.filter(e => e.sensor === sensorF);
+  if (search) {
+    filtered = filtered.filter(e =>
+      (e.type || '').toLowerCase().includes(search) ||
+      (e.sensor || '').toLowerCase().includes(search) ||
+      (e.description || '').toLowerCase().includes(search)
+    );
+  }
+  if (document.getElementById('anomHideAck')?.checked) {
+    filtered = filtered.filter(e => !anomAckKeys.has(anomEventKey(e)));
+  }
+  filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  return filtered;
+}
+
 let anomSimReadings = [];
 let anomSimActiveSensors = new Set(['temperature']);
 
@@ -1088,17 +1289,67 @@ async function fetchAnomalies() {
   try {
     const d = await apiFetch(CONFIG.ENDPOINTS.anomalies);
     anomalyLog = d.events || d || [];
-    setText('anomTotal',   d.total   ?? anomalyLog.length);
-    setText('anomSpikes',  d.spikes  ?? anomalyLog.filter(a=>a.type==='noise').length);
-    setText('anomMissing', d.missing ?? anomalyLog.filter(a=>a.type==='dropout').length);
-    setText('anomDrift',   d.drift   ?? anomalyLog.filter(a=>a.type==='drift').length);
+    updateAnomalySummaryCards(d);
     renderAnomalyTable();
   } catch {
-    setText('anomTotal',  '--');
-    setText('anomSpikes', '--');
-    setText('anomMissing','--');
-    setText('anomDrift',  '--');
+    resetAnomalySummaryCards();
   }
+}
+
+/* ── Anomaly detection constants ── */
+const ANOM_COLORS = { temperature:'#7a8c1e', humidity:'#4a7c8f', light:'#c4711a', height:'#3d5016' };
+const ANOM_UNITS  = { temperature:'°C', humidity:'%RH', light:'lux', height:'cm' };
+const ANOM_TYPE_META = {
+  spike:       { icon:'⚡', color:'#a83232', label:'Spike',        pill:'danger' },
+  drift:       { icon:'📈', color:'#4a7c8f', label:'Drift',        pill:'info' },
+  noise:       { icon:'🔥', color:'#c4711a', label:'Noise',        pill:'warning' },
+  dropout:     { icon:'📉', color:'#8a5000', label:'Dropout',      pill:'warning' },
+  correlation: { icon:'🔗', color:'#6a4ca0', label:'Correlation',  pill:'info' },
+  level_shift: { icon:'🔀', color:'#2a7a4a', label:'Level Shift',  pill:'danger' },
+  ewma_breach: { icon:'📐', color:'#5a6a1a', label:'EWMA Breach',  pill:'warning' },
+  seasonal:    { icon:'🌗', color:'#3a6a8a', label:'Seasonal',     pill:'info' },
+};
+const SCENARIO_INFO = {
+  stable:      'Generates clean data at setpoints with normal sensor noise. Should produce zero anomalies — use as a baseline sanity check.',
+  drift:       'Applies a linear temperature increase of 0.15°C per reading, simulating a heater malfunction or calibration drift.',
+  noise:       'Injects high-variance Gaussian noise (σ=4.0) onto temperature in the second half, simulating electrical interference or a failing sensor.',
+  dropout:     'Removes 8 consecutive readings mid-stream, simulating a Bluetooth disconnection or sensor power loss.',
+  spike:       'Inserts 3 extreme outlier readings (±15°C from normal), simulating DHT11 glitch values of 0 or 255.',
+  level_shift: 'Applies an abrupt +8°C step change halfway through — like someone opening a greenhouse door and leaving it open.',
+  correlation: 'Randomises humidity independently of temperature for 30% of the data, breaking the physical correlation the DHT11 normally produces.',
+  all:         'Applies every injection simultaneously: drift + noise + dropout + spikes + level shift + correlation break. Stress-test for the full detection pipeline.',
+};
+
+function updateAnomalySummaryCards(d) {
+  setText('anomTotal',      d.total ?? 0);
+  setText('anomSpike',      d.spike ?? d.by_type?.spike ?? 0);
+  setText('anomDrift',      d.drift ?? d.by_type?.drift ?? 0);
+  setText('anomNoise',      d.noise ?? d.by_type?.noise ?? 0);
+  setText('anomDropout',    d.dropout ?? d.by_type?.dropout ?? 0);
+  setText('anomCorrelation',d.correlation ?? d.by_type?.correlation ?? 0);
+  setText('anomLevelShift', d.level_shift ?? d.by_type?.level_shift ?? 0);
+  setText('anomEwma',       d.ewma_breach ?? d.by_type?.ewma_breach ?? 0);
+
+  const sevBar = document.getElementById('anomSevBar');
+  const bySev = d.by_severity || {};
+  const total = d.total || 0;
+  if (total > 0) {
+    sevBar.style.display = '';
+    const danger = bySev.danger || 0, warning = bySev.warning || 0, info = bySev.info || 0;
+    document.getElementById('anomSevCounts').textContent = danger + ' critical · ' + warning + ' warning · ' + info + ' info';
+    const inner = document.getElementById('anomSevBarInner');
+    inner.innerHTML = '';
+    if (danger)  inner.innerHTML += '<div style="flex:' + danger + ';background:#d04040;border-radius:4px;" title="Critical: ' + danger + '"></div>';
+    if (warning) inner.innerHTML += '<div style="flex:' + warning + ';background:#d4a020;border-radius:4px;" title="Warning: ' + warning + '"></div>';
+    if (info)    inner.innerHTML += '<div style="flex:' + info + ';background:#4080c0;border-radius:4px;" title="Info: ' + info + '"></div>';
+  } else {
+    sevBar.style.display = 'none';
+  }
+}
+
+function resetAnomalySummaryCards() {
+  for (const id of ['anomTotal','anomSpike','anomDrift','anomNoise','anomDropout','anomCorrelation','anomLevelShift','anomEwma']) setText(id, '--');
+  document.getElementById('anomSevBar').style.display = 'none';
 }
 
 async function runAnomalySimulation() {
@@ -1113,17 +1364,22 @@ async function runAnomalySimulation() {
 
   const scenario = document.getElementById('simScenario').value;
   const duration = document.getElementById('simDuration').value;
+
+  const infoPanel = document.getElementById('anomScenarioInfo');
+  infoPanel.style.display = '';
+  document.getElementById('anomScenarioTag').textContent = scenario.toUpperCase().replace('_',' ');
+  document.getElementById('anomScenarioDesc').textContent = SCENARIO_INFO[scenario] || '';
+
   try {
     const res = await fetch(API_BASE + '/api/anomalies/simulate?scenario=' + scenario + '&duration_min=' + duration, { method: 'POST' });
     const d = await res.json();
     anomSimReadings = d.readings || [];
     anomalyLog = d.events || [];
-    setText('anomTotal',   d.total   ?? 0);
-    setText('anomSpikes',  d.spikes  ?? 0);
-    setText('anomMissing', d.missing ?? 0);
-    setText('anomDrift',   d.drift   ?? 0);
+    updateAnomalySummaryCards(d);
     buildAnomSensorPills();
-    renderAnomChart();
+    anomResetVisible();
+    renderAnomCharts();
+    renderAnomalyScoreTimeline();
     renderAnomalyTable();
     const total = d.total || 0;
     fireAlert(total > 0 ? 'warning' : 'ok', 'Simulation Complete', anomSimReadings.length + ' readings · ' + total + ' anomalies detected', 5000);
@@ -1139,110 +1395,294 @@ async function runAnomalySimulation() {
 function clearAnomalySimulation() {
   fetch(API_BASE + '/api/anomalies/clear', { method: 'DELETE' }).catch(() => {});
   anomalyLog = []; anomSimReadings = [];
-  setText('anomTotal','--'); setText('anomSpikes','--'); setText('anomMissing','--'); setText('anomDrift','--');
-  if (charts.anomSim) { charts.anomSim.destroy(); charts.anomSim = null; }
+  anomResetVisible();
+  anomFocusTs = null;
+  document.getElementById('anomFocusBar')?.classList.remove('visible');
+  resetAnomalySummaryCards();
+  if (charts.anomSim) { for (const c of Object.values(charts.anomSim)) { if (c && c.destroy) c.destroy(); } charts.anomSim = null; }
+  if (charts.anomScore) { charts.anomScore.destroy(); charts.anomScore = null; }
   document.getElementById('anomChartWrap').innerHTML = '<div style="padding:32px;text-align:center;font-size:11px;color:var(--bark-mid);"><div style="font-size:28px;margin-bottom:8px;">📡</div>Select a scenario above and hit <strong>▶ Run</strong> to visualise simulated data</div>';
+  document.getElementById('anomScoreWrap').innerHTML = '<div style="padding:24px;text-align:center;font-size:11px;color:var(--bark-mid);">Scores populate after simulation</div>';
   document.getElementById('anomSensorPills').innerHTML = '';
   document.getElementById('anomalyBody').innerHTML = '<div style="padding:32px;text-align:center;font-size:11px;color:var(--bark-mid);"><div style="font-size:28px;margin-bottom:8px;">📡</div>No anomalies detected yet — run a simulation or connect your system</div>';
   document.getElementById('anomLogCount').textContent = '';
+  document.getElementById('anomScenarioInfo').style.display = 'none';
 }
 
 function buildAnomSensorPills() {
   const container = document.getElementById('anomSensorPills');
   const available = new Set();
   for (const r of anomSimReadings) {
-    for (const k of ['temperature','humidity','light','height']) { if (r[k] != null) available.add(k); }
+    for (const k of ['temperature','humidity','light']) { if (r[k] != null) available.add(k); }
   }
   container.innerHTML = '';
   for (const s of available) {
     const pill = document.createElement('button');
     pill.className = 'plant-tab' + (anomSimActiveSensors.has(s) ? ' active' : '');
     pill.textContent = s.charAt(0).toUpperCase() + s.slice(1);
-    pill.onclick = () => { anomSimActiveSensors.has(s) ? anomSimActiveSensors.delete(s) : anomSimActiveSensors.add(s); pill.classList.toggle('active'); renderAnomChart(); };
+    pill.onclick = () => { anomSimActiveSensors.has(s) ? anomSimActiveSensors.delete(s) : anomSimActiveSensors.add(s); pill.classList.toggle('active'); renderAnomCharts(); };
     container.appendChild(pill);
   }
 }
 
-function renderAnomChart() {
+function renderAnomCharts() {
   const wrap = document.getElementById('anomChartWrap');
   if (!anomSimReadings.length) return;
-  if (!wrap.querySelector('canvas')) { wrap.innerHTML = '<canvas id="anomSimChart" height="200"></canvas>'; }
-  if (charts.anomSim) charts.anomSim.destroy();
 
-  const chartColors = { temperature:'#7a8c1e', humidity:'#4a7c8f', light:'#c4711a', height:'#3d5016' };
-  const anomStyles = { drift:{ color:'#4a7c8f', point:'triangle' }, noise:{ color:'#a83232', point:'circle' }, dropout:{ color:'#c4711a', point:'rectRot' } };
+  const showMarkers = document.getElementById('anomShowMarkers')?.checked ?? true;
+  const activeSensors = [...anomSimActiveSensors].filter(s => anomSimReadings.some(r => r[s] != null));
+  if (!activeSensors.length) { wrap.innerHTML = '<div style="padding:32px;text-align:center;font-size:11px;color:var(--bark-mid);">Select at least one sensor above</div>'; return; }
+
+  if (charts.anomSim) { for (const c of Object.values(charts.anomSim)) { if (c && c.destroy) c.destroy(); } }
+  charts.anomSim = {};
 
   const labels = anomSimReadings.map(r => { const t = new Date(r.timestamp); return t.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); });
-  const datasets = [];
+  const rMap = {}; anomSimReadings.forEach(r => rMap[r.timestamp] = r);
 
-  for (const sensor of anomSimActiveSensors) {
-    datasets.push({
-      label: sensor.charAt(0).toUpperCase() + sensor.slice(1),
+  let html = '';
+  for (const sensor of activeSensors) {
+    html += '<div style="margin-bottom:6px;"><canvas id="anomChart_' + sensor + '" height="' + (activeSensors.length > 1 ? 100 : 180) + '"></canvas></div>';
+  }
+  wrap.innerHTML = html;
+
+  for (const sensor of activeSensors) {
+    const datasets = [{
+      label: sensor.charAt(0).toUpperCase() + sensor.slice(1) + ' (' + (ANOM_UNITS[sensor]||'') + ')',
       data: anomSimReadings.map(r => r[sensor]),
-      borderColor: chartColors[sensor] || '#7a8c1e',
-      backgroundColor: (chartColors[sensor] || '#7a8c1e') + '22',
-      borderWidth: 2, pointRadius: 1.5, tension: 0.4, fill: true,
+      borderColor: ANOM_COLORS[sensor], backgroundColor: ANOM_COLORS[sensor] + '18',
+      borderWidth: 1.5, pointRadius: 0.8, tension: 0.3, fill: true, order: 2,
+    }];
+
+    if (showMarkers) {
+      const sensorEvents = anomalyLog.filter(e => e.sensor === sensor || (sensor === 'temperature' && e.sensor === 'temperature+humidity'));
+      const byType = {};
+      for (const e of sensorEvents) { (byType[e.type] = byType[e.type] || []).push(e); }
+      for (const [type, evts] of Object.entries(byType)) {
+        const meta = ANOM_TYPE_META[type] || { color:'#999', label:type };
+        datasets.push({
+          label: meta.label,
+          data: evts.map(e => {
+            const idx = anomSimReadings.findIndex(r => r.timestamp === e.timestamp);
+            return idx >= 0 ? { x: labels[idx], y: rMap[e.timestamp]?.[sensor] ?? null } : null;
+          }).filter(Boolean),
+          pointStyle: e => e.raw?.severity === 'danger' ? 'rectRot' : 'triangle',
+          pointRadius: 6, pointBorderColor: meta.color, pointBackgroundColor: meta.color + '88',
+          pointBorderWidth: 2, showLine: false, order: 1,
+        });
+      }
+    }
+
+    charts.anomSim[sensor] = new Chart(document.getElementById('anomChart_' + sensor), {
+      type: 'line', data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: true, animation: { duration: 300 },
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { font: { family:'DM Mono', size:9 }, usePointStyle: true, padding:10 } },
+          tooltip: { backgroundColor:'#2c2a1e', titleFont:{ family:'Syne', weight:'700' }, bodyFont:{ family:'DM Mono', size:10 }, cornerRadius:8, padding:8,
+            callbacks: { afterBody: function(ctx) {
+              const idx = ctx[0]?.dataIndex;
+              if (idx == null) return '';
+              const ts = anomSimReadings[idx]?.timestamp;
+              const evts = anomalyLog.filter(e => e.timestamp === ts && (e.sensor === sensor || e.sensor === 'temperature+humidity'));
+              if (!evts.length) return '';
+              return '\n--- Anomalies ---\n' + evts.map(e => (ANOM_TYPE_META[e.type]?.icon||'') + ' ' + e.type + ': ' + (e.description||'').slice(0,60)).join('\n');
+            }}
+          }
+        },
+        scales: {
+          x: { ticks:{ font:{ family:'DM Mono', size:8 }, maxTicksLimit:10 }, grid:{ display:false } },
+          y: { title:{ display:true, text:sensor.charAt(0).toUpperCase()+sensor.slice(1)+' ('+( ANOM_UNITS[sensor]||'')+')', font:{ family:'Syne', size:10, weight:'700' } }, ticks:{ font:{ family:'DM Mono', size:9 } }, grid:{ color:'#e8e3d0' } }
+        }
+      }
     });
   }
+}
 
-  for (const [type, style] of Object.entries(anomStyles)) {
-    const typeEvts = anomalyLog.filter(e => e.type === type);
-    if (!typeEvts.length) continue;
-    const firstSensor = [...anomSimActiveSensors][0] || 'temperature';
-    const rMap = {}; anomSimReadings.forEach(r => rMap[r.timestamp] = r);
-    datasets.push({
-      label: type.charAt(0).toUpperCase() + type.slice(1) + ' anomaly',
-      data: typeEvts.map(e => ({ x: labels[anomSimReadings.findIndex(r => r.timestamp === e.timestamp)] || '', y: rMap[e.timestamp]?.[firstSensor] ?? null })).filter(d => d.y !== null),
-      pointStyle: style.point, pointRadius: 7, pointBorderColor: style.color, pointBackgroundColor: style.color + '66', pointBorderWidth: 2, showLine: false,
-    });
-  }
+function renderAnomalyScoreTimeline() {
+  const wrap = document.getElementById('anomScoreWrap');
+  if (!anomSimReadings.length || !anomalyLog.length) { wrap.innerHTML = '<div style="padding:24px;text-align:center;font-size:11px;color:var(--bark-mid);">No anomalies to score</div>'; return; }
 
-  charts.anomSim = new Chart(document.getElementById('anomSimChart'), {
-    type: 'line', data: { labels, datasets },
+  if (charts.anomScore) charts.anomScore.destroy();
+  wrap.innerHTML = '<canvas id="anomScoreChart" height="80"></canvas>';
+
+  const labels = anomSimReadings.map(r => new Date(r.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
+  const scores = anomSimReadings.map(r => {
+    const evts = anomalyLog.filter(e => e.timestamp === r.timestamp);
+    let score = 0;
+    for (const e of evts) { score += e.severity === 'danger' ? 3 : e.severity === 'warning' ? 2 : 1; }
+    return score;
+  });
+
+  const gradient = document.getElementById('anomScoreChart').getContext('2d');
+  const g = gradient.createLinearGradient(0,0,0,80);
+  g.addColorStop(0,'rgba(168,50,50,0.6)'); g.addColorStop(1,'rgba(168,50,50,0.02)');
+
+  charts.anomScore = new Chart(document.getElementById('anomScoreChart'), {
+    type: 'bar', data: { labels, datasets: [{ label:'Anomaly Score', data:scores, backgroundColor:g, borderColor:'rgba(168,50,50,0.7)', borderWidth:1, borderRadius:2 }] },
     options: {
-      responsive: true, animation: { duration: 400 }, interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { labels: { font: { family: 'DM Mono', size: 10 }, usePointStyle: true, padding: 14 } },
-        tooltip: { backgroundColor: '#2c2a1e', titleFont: { family: 'Syne', weight: '700' }, bodyFont: { family: 'DM Mono', size: 11 }, cornerRadius: 8, padding: 10 } },
-      scales: { x: { ticks: { font: { family: 'DM Mono', size: 9 }, maxTicksLimit: 12 }, grid: { display: false } }, y: { ticks: { font: { family: 'DM Mono', size: 10 } }, grid: { color: '#e8e3d0' } } }
+      responsive:true, maintainAspectRatio:true, animation:{duration:300},
+      plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#2c2a1e', bodyFont:{family:'DM Mono',size:10}, cornerRadius:6, callbacks:{ label:ctx => 'Score: '+ctx.raw+' ('+anomalyLog.filter(e=>e.timestamp===anomSimReadings[ctx.dataIndex]?.timestamp).length+' events)' } } },
+      scales:{ x:{display:false}, y:{beginAtZero:true,ticks:{font:{family:'DM Mono',size:9},stepSize:1},grid:{color:'#e8e3d033'}} }
     }
   });
 }
 
 function renderAnomalyTable() {
-  const typeF   = document.getElementById('anomFilterType')?.value   || '';
-  const sevF    = document.getElementById('anomFilterSev')?.value    || '';
-  const sensorF = document.getElementById('anomFilterSensor')?.value || '';
+  initAnomalyBodyDelegateOnce();
+  loadAnomAckFromStorage();
 
-  let filtered = anomalyLog;
-  if (typeF)   filtered = filtered.filter(e => e.type === typeF);
-  if (sevF)    filtered = filtered.filter(e => e.severity === sevF);
-  if (sensorF) filtered = filtered.filter(e => e.sensor === sensorF);
-
-  document.getElementById('anomLogCount').textContent = filtered.length ? '(' + filtered.length + ')' : '';
-
+  const filtered = anomCollectFiltered();
+  const groupBy = document.getElementById('anomGroupByTime')?.checked;
   const body = document.getElementById('anomalyBody');
   if (!body) return;
+
+  const countLabel = filtered.length
+    ? ('(' + filtered.length + (filtered.length !== anomalyLog.length ? ' filtered' : '') + ')')
+    : '';
+  document.getElementById('anomLogCount').textContent = countLabel;
+
   if (!filtered.length) {
     body.innerHTML = '<div style="padding:32px;text-align:center;font-size:11px;color:var(--bark-mid)"><div style="font-size:28px;margin-bottom:8px">✅</div>No matching anomalies</div>';
     return;
   }
-  body.innerHTML = filtered.slice(0,50).map(a => {
-    const typeClass = (a.type === 'drift') ? 'info' : (a.type === 'noise') ? 'danger' : 'warning';
-    return `<div class="tbl-row" style="grid-template-columns:140px 80px 100px 1fr 90px 80px;">
-      <span style="font-size:10px;">${new Date(a.timestamp).toLocaleString([],{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>
-      <span><span class="sev-pill ${typeClass}" style="text-transform:uppercase;">${a.type||'—'}</span></span>
-      <span>${a.sensor||'—'}</span>
-      <span style="font-size:10px;">${a.description}</span>
-      <span><span class="sev-pill ${a.severity}">${(a.severity||'').toUpperCase()}</span></span>
-      <span><span class="status-pill ${a.status==='resolved'?'resolved':'active'}">${a.status==='resolved'?'Resolved':'Active'}</span></span>
-    </div>`;
-  }).join('');
+
+  let html = '';
+  let hasMore = false;
+  let totalClusters = 0;
+
+  if (groupBy) {
+    const map = new Map();
+    for (const e of filtered) {
+      if (!map.has(e.timestamp)) map.set(e.timestamp, []);
+      map.get(e.timestamp).push(e);
+    }
+    const clusters = [...map.entries()].sort((a, b) => new Date(b[0]) - new Date(a[0]));
+    totalClusters = clusters.length;
+    let n = 0;
+    for (const [ts, evts] of clusters) {
+      if (n >= anomLogVisible) { hasMore = true; break; }
+      n++;
+      const types = [...new Set(evts.map(x => x.type))].join(', ');
+      const encTs = encodeURIComponent(ts);
+      const openCls = anomFocusTs === ts ? ' open' : '';
+      const chev = anomFocusTs === ts ? '▾' : '▸';
+      html += '<div class="anom-group"><div class="anom-group-head">';
+      html += '<span class="anom-grp-chev" style="font-size:12px;color:var(--bark-mid);width:18px;">' + chev + '</span>';
+      html += '<span style="flex:1;font-family:\'DM Mono\',monospace;font-size:10px;">' + escapeHtml(new Date(ts).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' })) + '</span>';
+      html += '<span class="anom-group-meta">' + evts.length + ' · ' + escapeHtml(types) + '</span>';
+      html += '<button type="button" class="btn btn-ghost" style="font-size:9px;padding:3px 8px;" data-anom-focus-ts="' + encTs + '">Focus</button>';
+      html += '</div><div class="anom-group-body' + openCls + '">';
+      for (const a of evts) {
+        const meta = ANOM_TYPE_META[a.type] || { pill: 'info', label: a.type };
+        const key = anomEventKey(a);
+        const encKey = encodeURIComponent(key);
+        const reviewed = anomAckKeys.has(key);
+        html += '<div class="anom-mini-row">';
+        html += '<span><span class="sev-pill ' + meta.pill + '" style="text-transform:uppercase;font-size:7px;">' + escapeHtml(meta.label) + '</span> ' + escapeHtml((a.description || '').slice(0, 72)) + (a.description && a.description.length > 72 ? '…' : '') + '</span>';
+        html += '<span><span class="sev-pill ' + (a.severity || 'info') + '">' + escapeHtml((a.severity || '').toUpperCase()) + '</span></span>';
+        html += '<span style="font-size:9px;color:var(--bark-mid);">' + escapeHtml(a.sensor || '—') + '</span>';
+        html += '<span style="display:flex;gap:4px;justify-content:flex-end;">';
+        html += '<button type="button" class="btn btn-ghost" style="font-size:8px;padding:2px 6px;" data-anom-ack="' + encKey + '"' + (reviewed ? ' disabled="disabled"' : '') + '>' + (reviewed ? '✓' : 'Review') + '</button>';
+        html += '<button type="button" class="btn btn-ghost" style="font-size:8px;padding:2px 6px;" data-anom-focus-ts="' + encTs + '">→</button>';
+        html += '</span></div>';
+        html += '<div style="padding:0 0 10px 4px;font-size:10px;color:var(--bark-mid);">' + buildDetailPanel(a) + '</div>';
+      }
+      html += '</div></div>';
+    }
+  } else {
+    const slice = filtered.slice(0, anomLogVisible);
+    hasMore = filtered.length > anomLogVisible;
+    slice.forEach((a, idx) => {
+      const meta = ANOM_TYPE_META[a.type] || { pill: 'info', label: a.type, icon: '?' };
+      const detailHtml = buildDetailPanel(a);
+      const key = anomEventKey(a);
+      const encKey = encodeURIComponent(key);
+      const encTs = encodeURIComponent(a.timestamp);
+      const reviewed = anomAckKeys.has(key);
+      const focusCls = anomFocusTs === a.timestamp ? ' anom-row-focus' : '';
+      html += '<div class="tbl-row' + focusCls + '" style="grid-template-columns:30px 130px 90px 100px 1fr 72px 62px;cursor:pointer;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'\':\'none\'">';
+      html += '<span style="font-size:12px;color:var(--bark-mid);">▸</span>';
+      html += '<span style="font-size:10px;">' + escapeHtml(new Date(a.timestamp).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' })) + '</span>';
+      html += '<span><span class="sev-pill ' + meta.pill + '" style="text-transform:uppercase;">' + escapeHtml(meta.label) + '</span></span>';
+      html += '<span style="font-size:10px;">' + escapeHtml(a.sensor || '—') + '</span>';
+      html += '<span style="font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(a.description || '') + '</span>';
+      html += '<span><span class="sev-pill ' + (a.severity || 'info') + '">' + escapeHtml((a.severity || '').toUpperCase()) + '</span></span>';
+      html += '<span style="font-size:9px;color:var(--bark-mid);">' + (reviewed ? 'Reviewed' : '—') + '</span>';
+      html += '</div>';
+      html += '<div style="display:none;padding:12px 20px 16px 46px;background:#faf8f0;border-bottom:1px solid var(--cream-dark);font-size:10px;line-height:1.7;">';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">';
+      html += '<button type="button" class="btn btn-ghost" style="font-size:9px;padding:4px 10px;" data-anom-focus-ts="' + encTs + '">Focus this time</button>';
+      html += '<button type="button" class="btn btn-ghost" style="font-size:9px;padding:4px 10px;" data-anom-ack="' + encKey + '"' + (reviewed ? ' disabled="disabled"' : '') + '>' + (reviewed ? 'Already reviewed' : 'Mark reviewed') + '</button>';
+      html += '</div>' + detailHtml + '</div>';
+    });
+  }
+
+  if (hasMore) {
+    html += '<div class="anom-load-more-wrap"><button type="button" class="btn btn-primary" style="font-size:10px;padding:6px 18px;" onclick="anomLoadMore()">Load more</button>';
+    const sub = groupBy && totalClusters
+      ? ('Showing ' + Math.min(anomLogVisible, totalClusters) + ' of ' + totalClusters + ' time buckets')
+      : ('Showing ' + Math.min(anomLogVisible, filtered.length) + ' of ' + filtered.length + ' events');
+    html += '<span style="display:block;margin-top:6px;font-size:9px;color:var(--bark-mid);">' + sub + '</span></div>';
+  }
+
+  body.innerHTML = html;
+}
+
+function buildDetailPanel(event) {
+  const d = event.detail;
+  if (!d || !Object.keys(d).length) return '<span style="color:var(--bark-mid);">No additional detail available.</span>';
+
+  let rows = '';
+  const labelMap = {
+    z_score:'Z-Score', value:'Value', mean:'Mean', std:'Std Dev',
+    slope:'Slope', r_squared:'R²', direction:'Direction',
+    cusum:'CUSUM', threshold_h:'Threshold (h)', allowance_k:'Allowance (k)', shift_magnitude:'Shift Size',
+    pearson_r:'Pearson r', abs_r:'|r|', window_size:'Window',
+    ewma:'EWMA', ucl:'UCL', lcl:'LCL', sigma:'σ', deviation_sigma:'Deviation (σ)',
+    lambda:'Lambda (λ)', L:'L multiplier',
+    expected_mean:'Expected', expected_std:'Expected σ', hour:'Hour',
+    gap_seconds:'Gap (sec)', expected_interval:'Expected Interval', lower_bound:'Lower Bound', upper_bound:'Upper Bound',
+    reason:'Reason',
+  };
+  for (const [k, v] of Object.entries(d)) {
+    const label = labelMap[k] || k.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+    let val;
+    if (typeof v === 'number') {
+      val = Number.isFinite(v) ? (Number.isInteger(v) ? String(v) : v.toFixed(4)) : String(v);
+    } else {
+      val = escapeHtml(String(v));
+    }
+    rows += '<div style="display:flex;gap:12px;"><span style="color:var(--bark-mid);min-width:120px;">' + escapeHtml(label) + '</span><span style="font-family:\'DM Mono\',monospace;font-weight:600;">' + val + '</span></div>';
+  }
+  return rows;
 }
 
 function exportAnomalyCSV() {
   if (!anomalyLog.length) { fireAlert('warning','No Data','Run a simulation first.',3000); return; }
-  const rows = ['Timestamp,Type,Sensor,Description,Severity,Status', ...anomalyLog.map(e => `"${e.timestamp}","${e.type}","${e.sensor}","${e.description}","${e.severity}","${e.status||'active'}"`)];
-  downloadFile('terrametric-anomalies.csv', rows.join('\n'), 'text/csv');
+  const header = 'Timestamp,Type,Sensor,Description,Severity,Status';
+  const rows = anomalyLog.map(e => {
+    const d = e.detail || {};
+    return `"${e.timestamp}","${e.type}","${e.sensor}","${e.description.replace(/"/g,'""')}","${e.severity}","${e.status||'active'}"`;
+  });
+  downloadFile('terrametric-anomalies.csv', [header, ...rows].join('\n'), 'text/csv');
+}
+
+function printAnomalyReport() {
+  if (!anomalyLog.length) { fireAlert('warning','No Data','Run a simulation first.',3000); return; }
+  const w = window.open('', '_blank');
+  const scenario = document.getElementById('simScenario').value;
+  let html = '<html><head><title>Terrametric Anomaly Report</title><style>body{font-family:Arial,sans-serif;padding:40px;color:#333;}h1{font-size:18px;}table{border-collapse:collapse;width:100%;margin-top:16px;font-size:11px;}th,td{border:1px solid #ddd;padding:6px 10px;text-align:left;}th{background:#f5f0e0;}.badge{padding:2px 6px;border-radius:4px;font-size:9px;font-weight:bold;}.danger{background:#ffe0e0;color:#8a1010;}.warning{background:#fff0c0;color:#8a5000;}.info{background:#e0f0ff;color:#204060;}</style></head><body>';
+  html += '<h1>Terrametric Anomaly Detection Report</h1>';
+  html += '<p style="font-size:12px;color:#666;">Scenario: <strong>' + scenario + '</strong> · Generated: ' + new Date().toLocaleString() + ' · Total events: ' + anomalyLog.length + '</p>';
+  html += '<table><tr><th>Time</th><th>Type</th><th>Sensor</th><th>Description</th><th>Severity</th></tr>';
+  for (const e of anomalyLog) {
+    html += '<tr><td>' + new Date(e.timestamp).toLocaleString() + '</td><td>' + e.type + '</td><td>' + e.sensor + '</td><td>' + e.description + '</td><td><span class="badge ' + e.severity + '">' + e.severity.toUpperCase() + '</span></td></tr>';
+  }
+  html += '</table></body></html>';
+  w.document.write(html);
+  w.document.close();
+  w.print();
 }
 
 // ── Samples ──────────────────────────────────────────────────
@@ -1635,6 +2075,9 @@ setInterval(checkConnection, 10000);
 setInterval(() => { if(isConnected) fetchLatest(); }, CONFIG.REFRESH_LIVE);
 setInterval(() => { if(isConnected) { fetchTelemetry(); fetchAlerts(); fetchAnomalies(); fetchGallery(); } }, CONFIG.REFRESH_CHARTS);
 setInterval(() => { if(isConnected) fetchAlerts(); }, CONFIG.REFRESH_ALERTS);
+
+loadAnomAckFromStorage();
+initAnomalyBodyDelegateOnce();
 </script>
 </body>
 </html>

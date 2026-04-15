@@ -41,6 +41,11 @@ from services.detectors import (
     DriftDetector,
     NoiseDetector,
     DropoutDetector,
+    SpikeDetector,
+    CorrelationDetector,
+    CUSUMDetector,
+    EWMADetector,
+    SeasonalDetector,
 )
 
 
@@ -93,15 +98,24 @@ class AnomalyDetectionService:
         # One buffer per session (created lazily), shared by all buffer-based detectors
         self._buffers: dict[int, RollingBuffer] = {}
 
-        # The dropout detector needs its own reset() so we keep a reference
+        # Detectors that maintain per-session state and need explicit reset()
         self._dropout = DropoutDetector(dropout_multiplier, dropout_baseline_count)
+        self._correlation = CorrelationDetector(window_size=noise_window)
+        self._cusum = CUSUMDetector(profiles)
+        self._ewma = EWMADetector(profiles)
+        self._seasonal = SeasonalDetector()
 
         # All detectors in a single list, iterated by process_reading().
-        # To add a 4th detector, just append it here -- nothing else changes.
+        # Adding a new detector means: create the class, append here. Nothing else changes.
         self._detectors: list[BaseDetector] = [
             self._dropout,
+            SpikeDetector(profiles),
             DriftDetector(profiles, drift_window),
             NoiseDetector(profiles, noise_window, noise_warn_mult, noise_crit_mult),
+            self._correlation,
+            self._cusum,
+            self._ewma,
+            self._seasonal,
         ]
 
     def _get_buffer(self, session_id: int) -> RollingBuffer:
@@ -174,6 +188,10 @@ class AnomalyDetectionService:
         return summary
 
     def reset(self, session_id: int) -> None:
-        """Clean up when a session ends. Frees buffer memory and dropout state."""
+        """Clean up when a session ends. Frees buffer memory and all detector state."""
         self._buffers.pop(session_id, None)
         self._dropout.reset(session_id)
+        self._correlation.reset(session_id)
+        self._cusum.reset(session_id)
+        self._ewma.reset(session_id)
+        self._seasonal.reset(session_id)

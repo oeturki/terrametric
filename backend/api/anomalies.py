@@ -25,6 +25,9 @@ from simulation.simulator import (
     inject_drift,
     inject_noise,
     inject_gap,
+    inject_spike,
+    inject_level_shift,
+    inject_correlation_break,
 )
 
 router = APIRouter()
@@ -54,19 +57,32 @@ def _event_to_ui(evt: AnomalyEvent) -> dict:
         "severity": SEVERITY_MAP.get(evt.severity.value, evt.severity.value),
         "status": "active",
         "type": evt.anomaly_type.value,
+        "detail": evt.detail,
     }
 
 
 def _build_summary(events: list[dict]) -> dict:
-    """Build the summary object the UI's fetchAnomalies() expects."""
-    noise_count = sum(1 for e in events if e.get("type") == "noise")
-    dropout_count = sum(1 for e in events if e.get("type") == "dropout")
-    drift_count = sum(1 for e in events if e.get("type") == "drift")
+    """Build the summary object the UI expects, covering all detector types."""
+    by_type: dict[str, int] = {}
+    by_severity: dict[str, int] = {}
+    for e in events:
+        t = e.get("type", "unknown")
+        s = e.get("severity", "info")
+        by_type[t] = by_type.get(t, 0) + 1
+        by_severity[s] = by_severity.get(s, 0) + 1
+
     return {
-        "spikes": noise_count,
-        "missing": dropout_count,
-        "drift": drift_count,
         "total": len(events),
+        "by_type": by_type,
+        "by_severity": by_severity,
+        "spike": by_type.get("spike", 0),
+        "drift": by_type.get("drift", 0),
+        "noise": by_type.get("noise", 0),
+        "dropout": by_type.get("dropout", 0),
+        "correlation": by_type.get("correlation", 0),
+        "level_shift": by_type.get("level_shift", 0),
+        "ewma_breach": by_type.get("ewma_breach", 0),
+        "seasonal": by_type.get("seasonal", 0),
         "events": events,
     }
 
@@ -110,24 +126,27 @@ def anomaly_summary(session_id: int):
 
 @router.post("/simulate")
 def simulate_anomalies(
-    scenario: str = Query("drift", description="One of: stable, drift, noise, dropout, all"),
+    scenario: str = Query(
+        "drift",
+        description="One of: stable, drift, noise, dropout, spike, "
+                    "level_shift, correlation, all",
+    ),
     duration_min: int = Query(30, description="Duration of simulated data in minutes"),
 ):
     """
     POST /api/anomalies/simulate?scenario=drift
-    Generates synthetic data, runs it through the anomaly detectors,
-    and returns readings + detected events for the Terrametric UI.
 
     Scenarios:
-      stable  -- normal data, should produce 0 anomalies
-      drift   -- temperature gradually increases
-      noise   -- temperature becomes very jittery
-      dropout -- 8-minute gap in the middle of the data
-      all     -- drift + noise + dropout combined
+      stable      -- normal data, should produce 0 anomalies
+      drift       -- temperature gradually increases
+      noise       -- temperature becomes very jittery
+      dropout     -- 8-minute gap in the middle of the data
+      spike       -- random sensor spikes injected
+      level_shift -- abrupt step change mid-way through
+      correlation -- break temp/humidity physical correlation
+      all         -- every injection combined
     """
     global _event_store
-
-    # Reset the service so each simulation starts fresh
     _service.reset(session_id=99)
 
     seed = 42
@@ -138,16 +157,22 @@ def simulate_anomalies(
         noise_std={"temperature": 0.1, "humidity": 0.5, "light": 5.0},
     )
 
-    if scenario == "drift" or scenario == "all":
+    sc = scenario
+    if sc in ("drift", "all"):
         series = inject_drift(series, "temperature", slope_per_reading=0.15)
-    if scenario == "noise" or scenario == "all":
+    if sc in ("noise", "all"):
         start = len(series) // 2
         series = inject_noise(series, "temperature", noise_std=4.0, start_index=start, seed=123)
-    if scenario == "dropout" or scenario == "all":
+    if sc in ("dropout", "all"):
         gap_start = len(series) // 3
         series = inject_gap(series, start_index=gap_start, gap_count=8)
+    if sc in ("spike", "all"):
+        series = inject_spike(series, "temperature", count=3, magnitude=15.0, seed=seed)
+    if sc in ("level_shift", "all"):
+        series = inject_level_shift(series, "temperature", shift_amount=8.0)
+    if sc in ("correlation", "all"):
+        series = inject_correlation_break(series, seed=seed)
 
-    # Run each reading through the detection pipeline
     all_events: list[dict] = []
     readings_out: list[dict] = []
 
@@ -164,21 +189,19 @@ def simulate_anomalies(
 
         events = _service.process_reading(reading)
 
-        reading_dict = {
+        readings_out.append({
             "timestamp": d["timestamp"],
             "temperature": d.get("temperature"),
             "humidity": d.get("humidity"),
             "light": d.get("light"),
             "height": d.get("distance"),
-        }
-        readings_out.append(reading_dict)
+        })
 
         for evt in events:
             ui_evt = _event_to_ui(evt)
             ui_evt["session_id"] = 99
             all_events.append(ui_evt)
 
-    # Store events for GET /api/anomalies to return
     _event_store = all_events
 
     summary = _build_summary(
