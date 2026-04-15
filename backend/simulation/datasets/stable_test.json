@@ -1,0 +1,492 @@
+{
+  "description": "Stable baseline: 60 minutes at setpoints with normal sensor noise",
+  "generated_at": "2026-04-14T14:02:08.366132",
+  "count": 60,
+  "setpoints": {
+    "temperature": 22.0,
+    "humidity": 55.0,
+    "light": 500
+  },
+  "readings": [
+    {
+      "timestamp": "2026-04-07T10:00:00",
+      "temperature": 22.1,
+      "humidity": 53.4,
+      "light": 507,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:01:00",
+      "temperature": 22.3,
+      "humidity": 52.1,
+      "light": 486,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:02:00",
+      "temperature": 22.0,
+      "humidity": 54.5,
+      "light": 499,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:03:00",
+      "temperature": 21.7,
+      "humidity": 56.3,
+      "light": 507,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:04:00",
+      "temperature": 22.0,
+      "humidity": 56.7,
+      "light": 504,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:05:00",
+      "temperature": 21.7,
+      "humidity": 55.6,
+      "light": 490,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:06:00",
+      "temperature": 22.3,
+      "humidity": 54.9,
+      "light": 498,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:07:00",
+      "temperature": 21.8,
+      "humidity": 56.8,
+      "light": 498,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:08:00",
+      "temperature": 21.9,
+      "humidity": 54.5,
+      "light": 505,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:09:00",
+      "temperature": 22.1,
+      "humidity": 55.6,
+      "light": 504,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:10:00",
+      "temperature": 22.6,
+      "humidity": 54.4,
+      "light": 494,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:11:00",
+      "temperature": 21.8,
+      "humidity": 55.9,
+      "light": 511,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:12:00",
+      "temperature": 22.0,
+      "humidity": 53.7,
+      "light": 491,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:13:00",
+      "temperature": 22.2,
+      "humidity": 56.1,
+      "light": 505,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:14:00",
+      "temperature": 21.8,
+      "humidity": 55.3,
+      "light": 501,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:15:00",
+      "temperature": 22.1,
+      "humidity": 56.3,
+      "light": 502,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:16:00",
+      "temperature": 22.2,
+      "humidity": 55.1,
+      "light": 502,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:17:00",
+      "temperature": 22.2,
+      "humidity": 52.8,
+      "light": 496,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:18:00",
+      "temperature": 21.9,
+      "humidity": 54.0,
+      "light": 497,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:19:00",
+      "temperature": 22.4,
+      "humidity": 53.7,
+      "light": 509,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:20:00",
+      "temperature": 21.5,
+      "humidity": 54.5,
+      "light": 501,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:21:00",
+      "temperature": 22.2,
+      "humidity": 56.1,
+      "light": 507,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:22:00",
+      "temperature": 21.9,
+      "humidity": 54.3,
+      "light": 508,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:23:00",
+      "temperature": 21.9,
+      "humidity": 53.1,
+      "light": 488,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:24:00",
+      "temperature": 21.7,
+      "humidity": 55.7,
+      "light": 501,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:25:00",
+      "temperature": 22.2,
+      "humidity": 54.4,
+      "light": 501,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:26:00",
+      "temperature": 22.2,
+      "humidity": 54.5,
+      "light": 504,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:27:00",
+      "temperature": 21.8,
+      "humidity": 54.5,
+      "light": 496,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:28:00",
+      "temperature": 21.6,
+      "humidity": 55.7,
+      "light": 495,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:29:00",
+      "temperature": 22.0,
+      "humidity": 55.7,
+      "light": 504,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:30:00",
+      "temperature": 22.2,
+      "humidity": 54.9,
+      "light": 495,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:31:00",
+      "temperature": 22.0,
+      "humidity": 52.5,
+      "light": 485,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:32:00",
+      "temperature": 21.6,
+      "humidity": 53.5,
+      "light": 503,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:33:00",
+      "temperature": 21.7,
+      "humidity": 54.4,
+      "light": 512,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:34:00",
+      "temperature": 21.9,
+      "humidity": 56.1,
+      "light": 490,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:35:00",
+      "temperature": 21.9,
+      "humidity": 53.6,
+      "light": 496,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:36:00",
+      "temperature": 22.3,
+      "humidity": 52.4,
+      "light": 504,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:37:00",
+      "temperature": 22.1,
+      "humidity": 54.1,
+      "light": 485,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:38:00",
+      "temperature": 22.0,
+      "humidity": 54.2,
+      "light": 502,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:39:00",
+      "temperature": 22.0,
+      "humidity": 57.4,
+      "light": 497,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:40:00",
+      "temperature": 21.7,
+      "humidity": 55.3,
+      "light": 502,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:41:00",
+      "temperature": 22.4,
+      "humidity": 56.3,
+      "light": 503,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:42:00",
+      "temperature": 22.4,
+      "humidity": 53.2,
+      "light": 493,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:43:00",
+      "temperature": 21.7,
+      "humidity": 54.4,
+      "light": 486,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:44:00",
+      "temperature": 22.2,
+      "humidity": 54.7,
+      "light": 485,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:45:00",
+      "temperature": 21.7,
+      "humidity": 55.5,
+      "light": 508,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:46:00",
+      "temperature": 22.6,
+      "humidity": 59.4,
+      "light": 504,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:47:00",
+      "temperature": 21.7,
+      "humidity": 51.8,
+      "light": 502,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:48:00",
+      "temperature": 21.8,
+      "humidity": 54.4,
+      "light": 493,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:49:00",
+      "temperature": 22.0,
+      "humidity": 56.6,
+      "light": 501,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:50:00",
+      "temperature": 22.0,
+      "humidity": 53.4,
+      "light": 483,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:51:00",
+      "temperature": 21.9,
+      "humidity": 54.9,
+      "light": 517,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:52:00",
+      "temperature": 22.0,
+      "humidity": 56.5,
+      "light": 495,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:53:00",
+      "temperature": 21.6,
+      "humidity": 53.6,
+      "light": 492,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:54:00",
+      "temperature": 22.6,
+      "humidity": 53.8,
+      "light": 508,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:55:00",
+      "temperature": 21.7,
+      "humidity": 56.4,
+      "light": 503,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:56:00",
+      "temperature": 22.0,
+      "humidity": 54.9,
+      "light": 493,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:57:00",
+      "temperature": 22.1,
+      "humidity": 54.3,
+      "light": 487,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:58:00",
+      "temperature": 21.6,
+      "humidity": 55.3,
+      "light": 515,
+      "movement": false,
+      "distance": 30
+    },
+    {
+      "timestamp": "2026-04-07T10:59:00",
+      "temperature": 22.0,
+      "humidity": 54.8,
+      "light": 502,
+      "movement": false,
+      "distance": 30
+    }
+  ]
+}
