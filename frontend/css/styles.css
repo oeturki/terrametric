@@ -260,23 +260,34 @@ body { font-family: 'DM Mono', monospace; background: var(--cream); color: var(-
 /* ══════════════════════════════════════════
    CONTROL VARIABLES
 ══════════════════════════════════════════ */
-.control-top { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; padding: 16px 20px; background: white; border: 1px solid var(--cream-dark); border-radius: 12px; flex-wrap: wrap; }
-.group-label { font-size: 10px; letter-spacing: .15em; text-transform: uppercase; color: var(--bark-mid); }
-.group-select { font-family: 'DM Mono', monospace; font-size: 13px; padding: 8px 16px; border: 1.5px solid var(--olive); border-radius: 8px; background: white; color: var(--bark); cursor: pointer; outline: none; font-weight: 600; }
-.sensor-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 18px; margin-bottom: 20px; }
-.sensor-card { background: white; border: 1px solid var(--cream-dark); border-radius: 12px; padding: 20px; }
-.sensor-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-.sensor-icon-bg { width: 34px; height: 34px; border-radius: 8px; background: var(--cream-dark); display: flex; align-items: center; justify-content: center; font-size: 16px; }
-.sensor-name { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
-.field-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.field-label { font-size: 9px; letter-spacing: .15em; text-transform: uppercase; color: var(--bark-mid); width: 72px; flex-shrink: 0; }
-.live-val { flex: 1; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 14px; color: var(--bark-mid); }
-.live-val.connected { color: var(--olive); }
-.live-val.warn { color: var(--alert); }
-.live-val.crit { color: var(--danger); }
-.field-input { flex: 1; height: 32px; border-radius: 6px; border: 1.5px solid var(--cream-dark); padding: 0 10px; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--bark); background: var(--cream); outline: none; }
-.field-input:focus { border-color: var(--olive); background: white; }
-.save-row { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+.control-top{display:flex;align-items:center;gap:16px;margin-bottom:28px;padding:16px 20px;background:white;border:1px solid var(--cream-dark);border-radius:12px;flex-wrap:wrap;}
+.group-label{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--bark-mid);}
+.group-select{font-family:'DM Mono',monospace;font-size:13px;padding:8px 16px;border:1.5px solid var(--olive);border-radius:8px;background:white;color:var(--bark);cursor:pointer;outline:none;font-weight:600;}
+.sensor-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-bottom:20px;}
+.sensor-card{background:white;border:1px solid var(--cream-dark);border-radius:12px;padding:20px;}
+.sensor-header{display:flex;align-items:center;gap:10px;margin-bottom:16px;}
+.sensor-icon-bg{width:34px;height:34px;border-radius:8px;background:var(--cream-dark);display:flex;align-items:center;justify-content:center;font-size:16px;}
+.sensor-name{font-family:'Syne',sans-serif;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.06em;}
+.field-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.field-label{font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--bark-mid);width:72px;flex-shrink:0;}
+.live-val{flex:1;font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--bark-mid);}
+.live-val.connected{color:var(--olive);}
+.live-val.warn{color:var(--alert);}
+.live-val.crit{color:var(--danger);}
+.field-input{flex:1;height:32px;border-radius:6px;border:1.5px solid var(--cream-dark);padding:0 10px;font-family:'DM Mono',monospace;font-size:11px;color:var(--bark);background:var(--cream);outline:none;}
+.field-input:focus{border-color:var(--olive);background:white;}
+.save-row{display:flex;justify-content:flex-end;gap:10px;margin-top:4px;}
+.range-inputs {display: flex;align-items: center;gap: 6px;flex: 1;}
+.range-inputs input {width: 60px;height: 32px;border-radius: 6px;border: 1.5px solid var(--cream-dark);padding: 0 6px;font-family: 'DM Mono', monospace;font-size: 11px;color: var(--bark);background: var(--cream);outline: none;}
+.range-inputs input:focus {border-color: var(--olive);background: white;}
+.range-sep,
+.unit {font-size: 12px;color: var(--bark-mid);}
+.switch {position: relative;display: inline-block;width: 44px;height: 24px;}
+.switch input {opacity: 0;width: 0;height: 0;}
+.slider {position: absolute;cursor: pointer;top: 0; left: 0; right: 0; bottom: 0;background-color: var(--cream-dark);transition: 0.2s;border-radius: 24px;}
+.slider:before {position: absolute;content: "";height: 18px;width: 18px;left: 3px;bottom: 3px;background-color: white;transition: 0.2s;border-radius: 50%;}
+.switch input:checked + .slider {background-color: var(--olive);}
+.switch input:checked + .slider:before {transform: translateX(20px);}
 
 /* ══════════════════════════════════════════
    MANAGE SAMPLES
