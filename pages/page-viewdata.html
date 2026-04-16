@@ -1,0 +1,250 @@
+<div class="topbar">
+  <div><div class="page-title">View Data</div><div class="page-subtitle">Graphs · Gallery · Anomalies</div></div>
+  <div class="topbar-right">
+    <button class="alert-bell-btn" onclick="toggleDD()">🔔<span class="bell-count">0</span></button>
+    <button class="btn btn-ghost" onclick="exportData()">Export CSV</button>
+    <button class="btn btn-primary" onclick="fetchAll()">↻ Refresh</button>
+  </div>
+</div>
+<div class="persistent-banner"><span class="banner-icon">⚠</span><span class="banner-text"></span><span class="banner-dismiss" onclick="dismissBanner()">✕</span></div>
+<div class="content">
+  <div class="tab-bar">
+    <div class="tab active" onclick="switchTab('graphs',this)">📈 Graphs</div>
+    <div class="tab" onclick="switchTab('gallery',this)">🖼 Gallery</div>
+    <div class="tab" onclick="switchTab('anomalies',this)">⚠ Anomalies</div>
+  </div>
+
+  <!-- GRAPHS TAB -->
+  <div class="tabpanel active" id="tab-graphs">
+    <div class="filter-row">
+      <select class="select-pill" id="graphSample"><option value="">All Samples</option></select>
+      <select class="select-pill" id="graphRange" onchange="fetchTelemetry()">
+        <option value="20">Last 20 readings</option>
+        <option value="50">Last 50 readings</option>
+        <option value="100">Last 100 readings</option>
+      </select>
+    </div>
+    <div class="graphs-grid">
+      <div class="graph-card">
+        <div class="card-header"><span class="card-title">🌡 Temperature (°C)</span><span id="tempLive" style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;"></span></div>
+        <div id="chartTempWrap"><div class="skel" style="height:150px;border-radius:8px;"></div></div>
+        <div class="graph-mini">
+          <div class="gm"><div class="gm-label">Min</div><div class="gm-val" id="tempMin">--</div></div>
+          <div class="gm"><div class="gm-label">Max</div><div class="gm-val" id="tempMax">--</div></div>
+          <div class="gm"><div class="gm-label">Avg</div><div class="gm-val" id="tempAvg">--</div></div>
+          <div class="gm"><div class="gm-label">Threshold</div><div class="gm-val" id="tempThresh">28°C</div></div>
+        </div>
+      </div>
+      <div class="graph-card">
+        <div class="card-header"><span class="card-title">💧 Humidity (%RH)</span><span id="humLive" style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;"></span></div>
+        <div id="chartHumWrap"><div class="skel" style="height:150px;border-radius:8px;"></div></div>
+        <div class="graph-mini">
+          <div class="gm"><div class="gm-label">Min</div><div class="gm-val" id="humMin">--</div></div>
+          <div class="gm"><div class="gm-label">Max</div><div class="gm-val" id="humMax">--</div></div>
+          <div class="gm"><div class="gm-label">Avg</div><div class="gm-val" id="humAvg">--</div></div>
+          <div class="gm"><div class="gm-label">Threshold</div><div class="gm-val" id="humThresh">80%</div></div>
+        </div>
+      </div>
+      <div class="graph-card">
+        <div class="card-header"><span class="card-title">☀ Light (lux)</span><span id="lightLive" style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;"></span></div>
+        <div id="chartLightWrap"><div class="skel" style="height:150px;border-radius:8px;"></div></div>
+        <div class="graph-mini">
+          <div class="gm"><div class="gm-label">Min</div><div class="gm-val" id="lightMin">--</div></div>
+          <div class="gm"><div class="gm-label">Max</div><div class="gm-val" id="lightMax">--</div></div>
+          <div class="gm"><div class="gm-label">Avg</div><div class="gm-val" id="lightAvg">--</div></div>
+          <div class="gm"><div class="gm-label">Threshold</div><div class="gm-val" id="lightThresh">200 lux</div></div>
+        </div>
+      </div>
+      <div class="graph-card">
+        <div class="card-header"><span class="card-title">📏 Plant Height (cm)</span><span id="heightLive" style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;"></span></div>
+        <div id="chartHeightWrap"><div class="skel" style="height:150px;border-radius:8px;"></div></div>
+        <div class="graph-mini">
+          <div class="gm"><div class="gm-label">Min</div><div class="gm-val" id="heightMin">--</div></div>
+          <div class="gm"><div class="gm-label">Max</div><div class="gm-val" id="heightMax">--</div></div>
+          <div class="gm"><div class="gm-label">Avg</div><div class="gm-val" id="heightAvg">--</div></div>
+          <div class="gm"><div class="gm-label">Threshold</div><div class="gm-val" id="heightThresh">35cm</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GALLERY TAB -->
+  <div class="tabpanel" id="tab-gallery">
+    <div class="gallery-plant-bar">
+      <div class="gallery-plant-label">Viewing Plant:</div>
+      <div id="galleryPlantTabs" style="display:flex;gap:8px;flex-wrap:wrap;flex:1;"></div>
+      <div style="font-size:10px;color:var(--bark-mid);">📷 Auto-captured images</div>
+    </div>
+    <div id="galleryPlantHeader"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.08em;">📸 Growth Timeline</div>
+      <div style="font-size:10px;color:var(--bark-mid);">Most recent first</div>
+    </div>
+    <div id="galleryTimeline"></div>
+  </div>
+
+  <!-- ANOMALIES TAB -->
+  <div class="tabpanel" id="tab-anomalies">
+    <div class="anom-page">
+
+      <section class="anom-sim-toolbar" aria-label="Simulation parameters">
+        <div class="anom-sim-toolbar__group">
+          <span class="anom-kicker">Synthetic run</span>
+          <label class="anom-sr-only" for="simScenario">Scenario</label>
+          <select class="select-pill anom-sim-toolbar__select" id="simScenario">
+            <option value="stable">Stable</option>
+            <option value="drift" selected>Drift</option>
+            <option value="noise">Noise</option>
+            <option value="dropout">Dropout</option>
+            <option value="spike">Spike</option>
+            <option value="level_shift">Level Shift</option>
+            <option value="correlation">Correlation Break</option>
+            <option value="all">All Combined</option>
+          </select>
+        </div>
+        <div class="anom-sim-toolbar__group anom-sim-toolbar__group--duration">
+          <span class="anom-kicker">Duration</span>
+          <div class="anom-duration-field">
+            <label class="anom-sr-only" for="simDuration">Minutes</label>
+            <input type="number" class="anom-duration-input" id="simDuration" value="60" min="5" max="1440">
+            <span class="anom-duration-suffix">min</span>
+          </div>
+        </div>
+        <div class="anom-sim-toolbar__actions">
+          <button type="button" class="btn btn-primary" id="simRunBtn" onclick="runAnomalySimulation()">Run simulation</button>
+          <button type="button" class="btn btn-ghost" onclick="clearAnomalySimulation()">Clear results</button>
+        </div>
+      </section>
+
+      <aside id="anomScenarioInfo" class="anom-scenario-panel" aria-labelledby="anom-scenario-heading">
+        <div class="anom-scenario-panel__top">
+          <div class="anom-scenario-panel__label">
+            <span class="anom-scenario-panel__eyebrow">Active protocol</span>
+            <h3 id="anom-scenario-heading" class="anom-scenario-panel__title">Scenario specification</h3>
+          </div>
+          <code id="anomScenarioTag" class="anom-scenario-panel__code"></code>
+        </div>
+        <p id="anomScenarioDesc" class="anom-scenario-panel__desc"></p>
+      </aside>
+
+      <section class="anomaly-summary anom-summary-grid" aria-label="Detection counts">
+        <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon" aria-hidden="true">∑</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value" id="anomTotal">--</div><div class="anom-label">Total events</div></div></div>
+        <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon anom-stat-card__icon--danger" aria-hidden="true">↯</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value anom-stat-card__value--danger" id="anomSpike">--</div><div class="anom-label">Spikes</div></div></div>
+        <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon anom-stat-card__icon--sky" aria-hidden="true">↗</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value anom-stat-card__value--sky" id="anomDrift">--</div><div class="anom-label">Drift</div></div></div>
+        <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon anom-stat-card__icon--noise" aria-hidden="true">◇</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value anom-stat-card__value--noise" id="anomNoise">--</div><div class="anom-label">Noise</div></div></div>
+      </section>
+      <section class="anomaly-summary anom-summary-grid" aria-label="Detection counts continued">
+        <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon anom-stat-card__icon--alert" aria-hidden="true">⊘</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value anom-stat-card__value--alert" id="anomDropout">--</div><div class="anom-label">Dropouts</div></div></div>
+        <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon anom-stat-card__icon--corr" aria-hidden="true">∞</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value anom-stat-card__value--corr" id="anomCorrelation">--</div><div class="anom-label">Correlation</div></div></div>
+        <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon anom-stat-card__icon--shift" aria-hidden="true">⊔</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value anom-stat-card__value--shift" id="anomLevelShift">--</div><div class="anom-label">Level shift</div></div></div>
+        <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon anom-stat-card__icon--ewma" aria-hidden="true">ƒ</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value anom-stat-card__value--ewma" id="anomEwma">--</div><div class="anom-label">EWMA breach</div></div></div>
+      </section>
+
+      <section id="anomSevBar" class="anom-severity-card" aria-label="Severity distribution">
+        <div class="anom-severity-card__head">
+          <span class="anom-severity-card__title">Severity distribution</span>
+          <span id="anomSevCounts" class="anom-severity-card__counts"></span>
+        </div>
+        <div id="anomSevBarInner" class="anom-sev-stack" role="img" aria-hidden="true"></div>
+      </section>
+
+      <section class="graph-card anom-surface" id="anomChartCard">
+        <div class="card-header anom-card-head">
+          <span class="card-title">Per-sensor time series</span>
+          <div class="anom-card-head__tools">
+            <label class="anom-check-label">
+              <input type="checkbox" id="anomShowMarkers" checked onchange="renderAnomCharts()"> Event markers
+            </label>
+            <div id="anomSensorPills" class="anom-sensor-pills"></div>
+          </div>
+        </div>
+        <div id="anomChartWrap" class="anom-chart-host">
+          <div class="anom-placeholder">
+            <span class="anom-placeholder__glyph" aria-hidden="true">◇</span>
+            <p class="anom-placeholder__text">Configure a scenario and choose <strong>Run simulation</strong> to generate synthetic telemetry and detector output.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="graph-card anom-surface" id="anomScoreCard">
+        <div class="card-header anom-card-head"><span class="card-title">Weighted anomaly score</span></div>
+        <div id="anomFocusBar" class="anom-focus-bar">
+          <span class="anom-focus-label" id="anomFocusLabel"></span>
+          <button type="button" class="btn btn-ghost anom-btn-compact" onclick="clearAnomFocus()">Clear focus</button>
+        </div>
+        <div id="anomScoreWrap" class="anom-chart-host">
+          <div class="anom-placeholder anom-placeholder--compact">
+            <p class="anom-placeholder__text">Scores appear after a successful simulation run.</p>
+          </div>
+        </div>
+      </section>
+
+      <aside class="anom-readme" id="anomHelpPanel">
+        <div class="anom-readme__title">Interpretation notes</div>
+        <ul class="anom-readme__list">
+          <li><strong>Score timeline</strong> — severity-weighted activity per time step to show when alarms cluster, not only raw traces.</li>
+          <li><strong>Concurrent events</strong> — multiple detectors may flag the same timestamp under stress scenarios; use <strong>Group by time</strong> to collapse the log.</li>
+          <li><strong>Reviewed</strong> — local triage only (this browser); backend detection is unchanged.</li>
+        </ul>
+      </aside>
+
+      <section class="anom-log-section" aria-labelledby="anom-log-heading">
+        <div class="anom-log-toolbar">
+          <h2 id="anom-log-heading" class="anom-log-toolbar__title">Event log <span id="anomLogCount" class="anom-log-toolbar__meta"></span></h2>
+          <div class="anom-log-toolbar__actions">
+            <button type="button" class="btn btn-ghost anom-btn-compact" onclick="exportAnomalyCSV()">Export CSV</button>
+            <button type="button" class="btn btn-ghost anom-btn-compact" onclick="printAnomalyReport()">Print report</button>
+            <button type="button" class="btn btn-ghost anom-btn-compact" onclick="clearAnomAcknowledgements()">Clear reviewed</button>
+          </div>
+        </div>
+        <div class="anom-filter-row">
+          <input type="search" id="anomSearch" class="anom-search-input" placeholder="Filter by description, type, or sensor…" oninput="anomResetVisible(); renderAnomalyTable();">
+          <label class="anom-check-label anom-check-label--inline">
+            <input type="checkbox" id="anomGroupByTime" onchange="anomResetVisible(); renderAnomalyTable();"> Group by time
+          </label>
+          <label class="anom-check-label anom-check-label--inline">
+            <input type="checkbox" id="anomHideAck" onchange="renderAnomalyTable();"> Hide reviewed
+          </label>
+        </div>
+        <div class="anom-filter-row anom-filter-row--selects">
+          <select class="select-pill" id="anomFilterType" onchange="anomResetVisible(); renderAnomalyTable()">
+            <option value="">All types</option>
+            <option value="spike">Spike</option>
+            <option value="drift">Drift</option>
+            <option value="noise">Noise</option>
+            <option value="dropout">Dropout</option>
+            <option value="correlation">Correlation</option>
+            <option value="level_shift">Level shift</option>
+            <option value="ewma_breach">EWMA breach</option>
+            <option value="seasonal">Seasonal</option>
+          </select>
+          <select class="select-pill" id="anomFilterSev" onchange="anomResetVisible(); renderAnomalyTable()">
+            <option value="">All severities</option>
+            <option value="danger">Critical</option>
+            <option value="warning">Warning</option>
+            <option value="info">Info</option>
+          </select>
+          <select class="select-pill" id="anomFilterSensor" onchange="anomResetVisible(); renderAnomalyTable()">
+            <option value="">All sensors</option>
+            <option value="temperature">Temperature</option>
+            <option value="humidity">Humidity</option>
+            <option value="light">Light</option>
+            <option value="temperature+humidity">Temp + humidity</option>
+          </select>
+        </div>
+      </section>
+
+      <div class="anomaly-table anom-table-wrap">
+        <div class="tbl-head anom-tbl-head"><span></span><span>Timestamp</span><span>Type</span><span>Sensor</span><span>Description</span><span>Severity</span><span>Status</span></div>
+        <div id="anomalyBody">
+          <div class="anom-placeholder">
+            <span class="anom-placeholder__glyph" aria-hidden="true">◇</span>
+            <p class="anom-placeholder__text">No events loaded. Run a simulation or connect live telemetry to populate this register.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>

@@ -1,0 +1,44 @@
+<div class="topbar">
+  <div><div class="page-title">Manage Samples</div><div class="page-subtitle">Group Samples · One Tray Per Plant</div></div>
+  <div class="topbar-right">
+    <button class="alert-bell-btn" onclick="toggleDD()">🔔<span class="bell-count">0</span></button>
+    <button class="btn btn-ghost" onclick="exportSamples()">Export List</button>
+    <button class="btn btn-primary" onclick="addTray()">+ Add Sample</button>
+  </div>
+</div>
+<div class="persistent-banner"><span class="banner-icon">⚠</span><span class="banner-text"></span><span class="banner-dismiss" onclick="dismissBanner()">✕</span></div>
+<div class="content">
+  <div class="connection-note">
+    <strong>ℹ One tray, one plant.</strong> Each sample registered here maps to a physical tray in your chamber.
+    The QR code links this record to camera captures — so photos in the Gallery are automatically matched to the correct plant.
+  </div>
+  <div class="samples-layout">
+    <div class="tray-list-card">
+      <div class="tray-list-head">
+        <span class="tray-list-title">Group Samples</span>
+        <div class="tray-btns">
+          <div class="icon-btn" onclick="addTray()" title="Add sample">+</div>
+          <div class="icon-btn" onclick="removeTray()" title="Remove selected">−</div>
+        </div>
+      </div>
+      <div class="tray-items" id="trayItems"></div>
+    </div>
+    <div class="sample-detail">
+      <div class="detail-title" id="detailTitle">Sample Details — Sample 1</div>
+      <div class="detail-field"><label>Plant Name / Species</label><input class="detail-input" id="d-name" type="text" placeholder="e.g. Arabidopsis thaliana"></div>
+      <div class="detail-field"><label>Location / Position in Chamber</label><input class="detail-input" id="d-loc" type="text" placeholder="e.g. Chamber A, Row 1"></div>
+      <div class="detail-field"><label>Germination Date</label><input class="detail-input" id="d-germ" type="date"></div>
+      <div class="detail-field"><label>Treatment / Group Notes</label><textarea class="detail-input" id="d-notes" placeholder="Control group, treatment conditions, observations…"></textarea></div>
+      <div class="detail-field"><label>QR Code / Scan ID</label><input class="detail-input" id="d-qr" type="text" placeholder="Scan QR or enter ID manually…"></div>
+      <div style="display:flex;gap:10px;margin-top:4px;">
+        <button class="btn btn-ghost" style="flex:1" onclick="clearDetail()">Clear</button>
+        <button class="btn btn-primary" style="flex:1" onclick="saveSample()">Save Sample</button>
+      </div>
+      <div class="tips-box">
+        <h4>💡 How this connects</h4>
+        <p>Each sample = one physical tray with one plant. The QR code links this record to camera captures so
+           photos in the Gallery are automatically grouped by plant, letting you track growth over time.</p>
+      </div>
+    </div>
+  </div>
+</div>
