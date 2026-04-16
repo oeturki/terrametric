@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TerraMetric — Indoor Plant Research</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <!-- TerraMetric styles -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="logo">
+    <div class="logo-mark">Group 14</div>
+    <div class="logo-title">TerraMetric</div>
+    <div class="logo-sub">Indoor Research Platform v1.0</div>
+  </div>
+  <nav class="nav">
+    <div class="nav-section">Main</div>
+    <div class="nav-item" onclick="goTo('home',this)"><span class="nav-icon">⌂</span><span>Home</span></div>
+    <div class="nav-section">Monitor</div>
+    <div class="nav-item" onclick="goTo('viewdata',this)"><span class="nav-icon">◈</span><span>View Data</span></div>
+    <div class="nav-section">Manage</div>
+    <div class="nav-item" onclick="goTo('control',this)" ><span class="nav-icon">⊞</span><span>Control Variables</span></div>
+    <div class="nav-item" onclick="goTo('samples',this)"><span class="nav-icon">⊙</span><span>Manage Samples</span></div>
+  </nav>
+  <div class="sidebar-footer">
+    <span class="status-dot" id="connDot"></span><span id="connLabel">CONNECTING…</span>
+  </div>
+</aside>
+
+<!-- GLOBAL OVERLAYS -->
+<div class="toast-stack" id="toastStack"></div>
+<div class="alert-dropdown" id="alertDD">
+  <div class="alert-dd-head">
+    <span class="alert-dd-title">⚠ Alert Log</span>
+    <span class="clear-btn" onclick="clearAlerts()">Clear all</span>
+  </div>
+  <div class="alert-log" id="alertLog">
+    <div class="log-empty" id="logEmpty"><div style="font-size:28px;margin-bottom:8px">🔔</div>No alerts yet</div>
+  </div>
+</div>
+
+<main class="main">
+
+
+<div class="page active" id="page-control">
+  <div class="topbar">
+    <div><div class="page-title">Control Variables</div><div class="page-subtitle">Thresholds · Sampling Intervals</div></div>
+    <div class="topbar-right">
+      <button class="alert-bell-btn" onclick="toggleDD()">🔔<span class="bell-count">0</span></button>
+      <button class="btn btn-ghost" onclick="resetDefaults()">Reset Defaults</button>
+      <button class="btn btn-primary" onclick="saveControls()">💾 Save Changes</button>
+    </div>
+  </div>
+  <div class="persistent-banner"><span class="banner-icon">⚠</span><span class="banner-text"></span><span class="banner-dismiss" onclick="dismissBanner()">✕</span></div>
+  <div class="content">
+    <div class="control-top">
+      <span class="group-label">Control Group:</span>
+      <select class="group-select" id="groupSelect" onchange="fetchControls()">
+        <option value="1">Group 1</option>
+        <option value="2">Group 2</option>
+      </select>
+      <span style="font-size:10px;color:var(--bark-mid);">
+        Live readings update automatically. Edit thresholds and intervals, then hit Save.
+      </span>
+    </div>
+    <div class="sensor-grid">
+      <div class="sensor-card">
+        <div class="sensor-header"><div class="sensor-icon-bg">🌡</div><div class="sensor-name">Temperature</div></div>
+        <div class="field-row"><span class="field-label">Current</span><div class="live-val" id="ctrl-temp">-- °C</div></div>
+        <div class="field-row"><span class="field-label">Warning</span><input class="field-input" id="warn-temp" value="28" placeholder="°C threshold"></div>
+        <div class="field-row"><span class="field-label">Interval</span><input class="field-input" id="int-temp" value="30" placeholder="seconds"></div>
+      </div>
+      <div class="sensor-card">
+        <div class="sensor-header"><div class="sensor-icon-bg">💧</div><div class="sensor-name">Humidity</div></div>
+        <div class="field-row"><span class="field-label">Current</span><div class="live-val" id="ctrl-hum">-- %</div></div>
+        <div class="field-row"><span class="field-label">Warning</span><input class="field-input" id="warn-hum" value="80" placeholder="% threshold"></div>
+        <div class="field-row"><span class="field-label">Interval</span><input class="field-input" id="int-hum" value="30" placeholder="seconds"></div>
+      </div>
+      <div class="sensor-card">
+        <div class="sensor-header"><div class="sensor-icon-bg">☀</div><div class="sensor-name">Light</div></div>
+        <div class="field-row"><span class="field-label">Current</span><div class="live-val" id="ctrl-light">-- lux</div></div>
+        <div class="field-row"><span class="field-label">Warning</span><input class="field-input" id="warn-light" value="200" placeholder="lux threshold"></div>
+        <div class="field-row"><span class="field-label">Interval</span><input class="field-input" id="int-light" value="15" placeholder="seconds"></div>
+      </div>
+      <div class="sensor-card">
+        <div class="sensor-header"><div class="sensor-icon-bg">👁</div><div class="sensor-name">Motion (PIR)</div></div>
+        <div class="field-row"><span class="field-label">Current</span><div class="live-val" id="ctrl-motion">--</div></div>
+        <div class="field-row"><span class="field-label">Warning</span><input class="field-input" id="warn-motion" value="5" placeholder="events/min"></div>
+        <div class="field-row"><span class="field-label">Interval</span><input class="field-input" id="int-motion" value="10" placeholder="seconds"></div>
+      </div>
+      <div class="sensor-card">
+        <div class="sensor-header"><div class="sensor-icon-bg">📏</div><div class="sensor-name">Height (Ultrasonic)</div></div>
+        <div class="field-row"><span class="field-label">Current</span><div class="live-val" id="ctrl-height">-- cm</div></div>
+        <div class="field-row"><span class="field-label">Warning</span><input class="field-input" id="warn-height" value="35" placeholder="cm max"></div>
+        <div class="field-row"><span class="field-label">Interval</span><input class="field-input" id="int-height" value="120" placeholder="seconds"></div>
+      </div>
+      <div class="sensor-card">
+        <div class="sensor-header"><div class="sensor-icon-bg">📷</div><div class="sensor-name">Camera</div></div>
+        <div class="field-row"><span class="field-label">Last Shot</span><div class="live-val" id="ctrl-cam" style="font-size:11px;">--</div></div>
+        <div class="field-row"><span class="field-label">Capture At</span><input class="field-input" id="warn-cam" value="08:00, 14:00, 20:00" placeholder="HH:MM times"></div>
+        <div class="field-row"><span class="field-label">Interval</span><input class="field-input" id="int-cam" value="360" placeholder="minutes"></div>
+      </div>
+    </div>
+    <div class="save-row">
+      <button class="btn btn-ghost" onclick="fetchControls()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveControls()">💾 Save Group Config</button>
+    </div>
+  </div>
+</div>
+</main>
+<script src="js/config.js"></script>
+<script src="js/alerts.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/anomalies.js"></script>
+<script src="js/home.js"></script>
+<script src="js/samples.js"></script>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
