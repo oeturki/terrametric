@@ -14,12 +14,26 @@ from models.reading import Telemetry
 from datetime import datetime, timedelta
 
 def get_telemetry_timeseries_data(db: Session, hours: int = 24):
-    """
-    Retrieve time-series telemetry data for frontend graph display
-    Only appends new function, no modifications to existing code
-    """
     cutoff_time = datetime.utcnow() - timedelta(hours=hours)
-    return db.query(Telemetry)\
-             .filter(Telemetry.timestamp >= cutoff_time)\
-             .order_by(Telemetry.timestamp.asc())\
-             .all()
+    data = db.query(Telemetry).filter(Telemetry.timestamp >= cutoff_time).order_by(Telemetry.timestamp).all()
+    
+    timestamps = []
+    temperature = []
+    humidity = []
+    light = []
+    plant_height = []
+
+    for item in data:
+        timestamps.append(item.timestamp.isoformat())
+        temperature.append(item.temperature)
+        humidity.append(item.humidity)
+        light.append(item.light)
+        plant_height.append(item.plant_height)
+
+    return {
+        "timestamps": timestamps,
+        "temperature": temperature,
+        "humidity": humidity,
+        "light": light,
+        "plant_height": plant_height
+    }
