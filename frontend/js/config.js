@@ -3,8 +3,8 @@
 //  ← The ONLY file you and your teammates need to edit ←
 // ╠══════════════════════════════════════════════════════════════╣
 //
-//  Set PI_IP below to your server's IP address
-//  then make sure the server is running.
+//  Set PI_IP and PORT to match where you run uvicorn (see run_dashboard.bat).
+//  Default PORT is 8765 so it does not clash with other apps using 8000.
 //
 // ╚══════════════════════════════════════════════════════════════╝
 
@@ -12,7 +12,7 @@ const CONFIG = {
 
   // ── Server IP address and port ─────────────────────────────
   PI_IP:  '127.0.0.1',   // e.g. '192.168.1.42'
-  PORT:   8000,
+  PORT:   8765,          // local dev (run_dashboard.bat); use 8000 on Pi if needed
 
   // ── How often to refresh data (milliseconds) ───────────────
   REFRESH_LIVE:   10000,  // stat cards  — every 10 seconds
@@ -49,5 +49,23 @@ const CONFIG = {
   },
 };
 
-// Derived base URL — do not edit
-const API_BASE = `http://${CONFIG.PI_IP}:${CONFIG.PORT}`;
+// API base: same host+port as this page when it matches CONFIG (e.g. uvicorn serves UI + API);
+// otherwise use CONFIG (e.g. UI on :8080, API still on CONFIG.PORT).
+const API_BASE = (function () {
+  const fromConfig = function () {
+    return 'http://' + CONFIG.PI_IP + ':' + CONFIG.PORT;
+  };
+  if (typeof window === 'undefined' || !window.location.protocol.startsWith('http')) {
+    return fromConfig();
+  }
+  var pagePort = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+  var cfgPort = String(CONFIG.PORT);
+  var host = window.location.hostname;
+  var hostMatches = host === CONFIG.PI_IP ||
+    (CONFIG.PI_IP === '127.0.0.1' && host === 'localhost') ||
+    (CONFIG.PI_IP === 'localhost' && host === '127.0.0.1');
+  if (hostMatches && pagePort === cfgPort) {
+    return window.location.origin;
+  }
+  return fromConfig();
+})();

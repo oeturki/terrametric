@@ -3,10 +3,17 @@ Group 14 IoT Greenhouse Backend
 Entry point for the FastAPI application.
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from api import telemetry, alerts, control, camera, auth, plants, sessions, reports, anomalies
+
+# Static TerraMetric UI (frontend/index.html + js/ + css/) — same origin as /api/*
+_BACKEND_DIR = Path(__file__).resolve().parent
+_FRONTEND_DIR = _BACKEND_DIR.parent / "frontend"
 
 app = FastAPI(
     title="Group 14 - Environmental Control & Research Integrity System",
@@ -35,3 +42,12 @@ app.include_router(reports.router,    prefix="/api/reports",     tags=["Reports"
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+# Mount last: serves frontend/index.html at / and /index.html, plus /js/*, /css/* (one uvicorn = full app).
+if _FRONTEND_DIR.is_dir():
+    app.mount(
+        "/",
+        StaticFiles(directory=str(_FRONTEND_DIR), html=True),
+        name="frontend",
+    )
