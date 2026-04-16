@@ -69,3 +69,68 @@ const API_BASE = (function () {
   }
   return fromConfig();
 })();
+
+// ── Controls ─────────────────────────────────────────────────
+// Expected JSON: { group, temp_warn, temp_interval, hum_warn, hum_interval, … }
+async function fetchControls() {
+  const group = document.getElementById('groupSelect')?.value || 1;
+  try {
+    const d = await apiFetch(CONFIG.ENDPOINTS.control);
+
+    if (d.temp_warn != null)       document.getElementById('warn-temp').value = d.temp_warn;
+    if (d.temp_interval != null)   document.getElementById('int-temp').value = d.temp_interval;
+    if (d.hum_warn != null)        document.getElementById('warn-hum').value = d.hum_warn;
+    if (d.hum_interval != null)    document.getElementById('int-hum').value = d.hum_interval;
+    if (d.light_warn != null)      document.getElementById('warn-light').value = d.light_warn;
+    if (d.light_interval != null)  document.getElementById('int-light').value = d.light_interval;
+    if (d.motion_interval != null) document.getElementById('int-motion').value = d.motion_interval;
+    if (d.height_warn != null)     document.getElementById('warn-height').value = d.height_warn;
+    if (d.height_interval != null) document.getElementById('int-height').value = d.height_interval;
+    if (d.cam_schedule != null)    document.getElementById('warn-cam').value = d.cam_schedule;
+    if (d.cam_interval != null)    document.getElementById('int-cam').value = d.cam_interval;
+  } catch {
+    /* use defaults */
+  }
+}
+
+async function saveControls() {
+  const group = document.getElementById('groupSelect')?.value || 1;
+  const payload = {
+    group: parseInt(group, 10),
+    temp_warn:       parseFloat(document.getElementById('warn-temp').value),
+    temp_interval:   parseInt(document.getElementById('int-temp').value, 10),
+    hum_warn:        parseFloat(document.getElementById('warn-hum').value),
+    hum_interval:    parseInt(document.getElementById('int-hum').value, 10),
+    light_warn:      parseFloat(document.getElementById('warn-light').value),
+    light_interval:  parseInt(document.getElementById('int-light').value, 10),
+    motion_interval: parseInt(document.getElementById('int-motion').value, 10),
+    height_warn:     parseFloat(document.getElementById('warn-height').value),
+    height_interval: parseInt(document.getElementById('int-height').value, 10),
+    cam_schedule:    document.getElementById('warn-cam').value,
+    cam_interval:    parseInt(document.getElementById('int-cam').value, 10),
+  };
+
+  try {
+    await apiPost(CONFIG.ENDPOINTS.control, payload);
+    fireAlert('ok', 'Settings Saved', 'Group ' + group + ' configuration updated.', 4000);
+  } catch {
+    fireAlert('warning', 'Save Failed', 'Could not reach server. Check your connection.', 5000);
+  }
+}
+
+function resetDefaults() {
+  const d = CONFIG.DEFAULTS;
+  document.getElementById('warn-temp').value = d.temp_warn;
+  document.getElementById('int-temp').value = d.temp_interval;
+  document.getElementById('warn-hum').value = d.hum_warn;
+  document.getElementById('int-hum').value = d.hum_interval;
+  document.getElementById('warn-light').value = d.light_warn;
+  document.getElementById('int-light').value = d.light_interval;
+  document.getElementById('int-motion').value = d.motion_interval;
+  document.getElementById('warn-height').value = d.height_warn;
+  document.getElementById('int-height').value = d.height_interval;
+  document.getElementById('warn-cam').value = d.cam_schedule;
+  document.getElementById('int-cam').value = d.cam_interval;
+
+  fireAlert('info', 'Defaults Restored', 'All thresholds reset to defaults. Hit Save to apply.', 5000);
+}
