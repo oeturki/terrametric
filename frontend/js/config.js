@@ -86,7 +86,7 @@ async function fetchControls() {
     if (d.motion_interval != null) document.getElementById('int-motion').value = d.motion_interval;
     if (d.height_warn != null)     document.getElementById('warn-height').value = d.height_warn;
     if (d.height_interval != null) document.getElementById('int-height').value = d.height_interval;
-    if (d.cam_schedule != null)    document.getElementById('warn-cam').value = d.cam_schedule;
+    if (d.cam_schedule != null)    document.getElementById('cam-schedule').value = d.cam_schedule;
     if (d.cam_interval != null)    document.getElementById('int-cam').value = d.cam_interval;
   } catch {
     /* use defaults */
@@ -106,7 +106,7 @@ async function saveControls() {
     motion_interval: parseInt(document.getElementById('int-motion').value, 10),
     height_warn:     parseFloat(document.getElementById('warn-height').value),
     height_interval: parseInt(document.getElementById('int-height').value, 10),
-    cam_schedule:    document.getElementById('warn-cam').value,
+    cam_schedule:    document.getElementById('cam-schedule').value,
     cam_interval:    parseInt(document.getElementById('int-cam').value, 10),
   };
 
@@ -129,8 +129,40 @@ function resetDefaults() {
   document.getElementById('int-motion').value = d.motion_interval;
   document.getElementById('warn-height').value = d.height_warn;
   document.getElementById('int-height').value = d.height_interval;
-  document.getElementById('warn-cam').value = d.cam_schedule;
+  document.getElementById('cam-schedule').value = d.cam_schedule;
   document.getElementById('int-cam').value = d.cam_interval;
 
   fireAlert('info', 'Defaults Restored', 'All thresholds reset to defaults. Hit Save to apply.', 5000);
 }
+
+// ── Range Validation ─────────────────────────────────────────
+function attachRangeValidation(minId, maxId) {
+  const minInput = document.getElementById(minId);
+  const maxInput = document.getElementById(maxId);
+
+  if (!minInput || !maxInput) return;
+
+  function validate() {
+    const min = parseFloat(minInput.value);
+    const max = parseFloat(maxInput.value);
+
+    // ignore empty/invalid input
+    if (isNaN(min) || isNaN(max)) return;
+
+    // swap if user enters invalid range
+    if (min > max) {
+      [minInput.value, maxInput.value] = [maxInput.value, minInput.value];
+    }
+  }
+
+  minInput.addEventListener('input', validate);
+  maxInput.addEventListener('input', validate);
+}
+// run after page loads
+document.addEventListener('DOMContentLoaded', async () => {
+  await fetchControls();
+  attachRangeValidation('temp-min', 'temp-max');
+  attachRangeValidation('humid-min', 'humid-max');
+  attachRangeValidation('light-min', 'light-max');
+  attachRangeValidation('height-min', 'height-max');
+});
