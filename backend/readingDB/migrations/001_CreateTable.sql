@@ -1,14 +1,11 @@
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 
 CREATE TABLE IF NOT EXISTS readings (
-    control_group INT NOT NULL,
     device_id UUID NOT NULL,
+    control_group INT NOT NULL,
     timestamp TIMESTAMPTZ NOT NULL,
-    key TEXT NOT NULL,
-    double DOUBLE PRECISION,
-    string TEXT,
-    bool BOOLEAN,
-    bignum BIGINT
+    sensor_type TEXT NOT NULL,
+    value JSONB NOT NULL
 );
 
 -- Create a parent type to managed all the weekly partition tables
