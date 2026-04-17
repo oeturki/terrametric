@@ -296,5 +296,52 @@
 <script src="js/samples.js"></script>
 <script src="js/api.js"></script>
 <script src="js/app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+const mockBackendData = {
+    timestamps: [
+        "2026-04-17 00:00", "2026-04-17 01:00", "2026-04-17 02:00",
+        "2026-04-17 03:00", "2026-04-17 04:00", "2026-04-17 05:00",
+        "2026-04-17 06:00", "2026-04-17 07:00", "2026-04-17 08:00"
+    ],
+    temperature: [21.2, 20.9, 20.7, 21.5, 22.8, 23.5, 24.1, 23.9, 23.3],
+    humidity: [58, 60, 62, 59, 55, 52, 49, 51, 54],
+    light: [0, 0, 0, 50, 420, 980, 1520, 1380, 950],
+    plant_height: [15.2, 15.2, 15.3, 15.3, 15.4, 15.4, 15.5, 15.5, 15.6]
+};
+
+const readings = [];
+for(let i = 0; i < mockBackendData.timestamps.length; i++){
+    readings.push({
+        timestamp: mockBackendData.timestamps[i],
+        temperature: mockBackendData.temperature[i],
+        humidity: mockBackendData.humidity[i],
+        light: mockBackendData.light[i],
+        height: mockBackendData.plant_height[i]
+    })
+}
+
+window.onload = function() {
+    const ctx = document.getElementById('telemetry-chart').getContext('2d');
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: readings.map(item => item.timestamp),
+            datasets: [
+                { label: 'Temperature (°C)', data: readings.map(i=>i.temperature), borderColor: '#ef4444', tension: 0.2 },
+                { label: 'Humidity (%)', data: readings.map(i=>i.humidity), borderColor: '#3b82f6', tension: 0.2 },
+                { label: 'Light (lux)', data: readings.map(i=>i.light), borderColor: '#eab308', tension: 0.2 },
+                { label: 'Plant Height (cm)', data: readings.map(i=>i.height), borderColor: '#22c55e', tension: 0.2 }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: { x: { type: 'time' } }
+        }
+    });
+}
+</script>
 </body>
 </html>
