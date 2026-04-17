@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 def get_telemetry_timeseries_data(db: Session, hours: int = 24):
     cutoff_time = datetime.utcnow() - timedelta(hours=hours)
     data = db.query(Telemetry).filter(Telemetry.timestamp >= cutoff_time).order_by(Telemetry.timestamp).all()
-    
+
     timestamps = []
     temperature = []
     humidity = []
