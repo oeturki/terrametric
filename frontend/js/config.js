@@ -40,7 +40,7 @@ const CONFIG = {
   ENDPOINTS: {
     health:    '/health',
     latest:    '/api/telemetry/latest',
-    telemetry: '/api/telemetry',
+    telemetry: '/api/telemetry/timeseries',
     alerts:    '/api/alerts/active',
     anomalies: '/api/anomalies',
     plants:    '/api/plants',

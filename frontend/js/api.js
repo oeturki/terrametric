@@ -61,10 +61,19 @@ async function fetchLatest() {
 // Returns: { readings: [{ temperature, humidity, light, height, timestamp }, …] }
 
 async function fetchTelemetry() {
-  const limit = document.getElementById('graphRange')?.value || 20;
+  const hourRange = document.getElementById('graphRange')?.value || 24;
   try {
-    const d = await apiFetch(CONFIG.ENDPOINTS.telemetry);
-    const readings = d.readings || d;
+    const d = await apiFetch(CONFIG.ENDPOINTS.telemetry + `?hours=${hourRange}`);
+    const readings = [];
+    for (let i = 0; i < d.timestamps.length; i++) {
+      readings.push({
+        timestamp: d.timestamps[i],
+        temperature: d.temperature[i],
+        humidity: d.humidity[i],
+        light: d.light[i],
+        height: d.plant_height[i]
+      });
+    }
     updateCharts(readings);
   } catch {
     showChartsOffline();
