@@ -299,51 +299,5 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-const mockData = {
-    timestamps: [
-        "2025-04-01 09:00", "2025-04-01 10:00", "2025-04-01 11:00",
-        "2025-04-01 12:00", "2025-04-01 13:00", "2025-04-01 14:00",
-        "2025-04-01 15:00", "2025-04-01 16:00", "2025-04-01 17:00"
-    ],
-    temperature: [22.1, 23.4, 24.2, 23.8, 22.9, 21.7, 22.5, 23.1, 22.7],
-    humidity: [58, 55, 51, 49, 53, 59, 62, 60, 57],
-    light: [0, 120, 450, 980, 1520, 1380, 950, 320, 0],
-    height: [15.2, 15.2, 15.3, 15.3, 15.4, 15.4, 15.4, 15.5, 15.5]
-};
-
-document.body.insertAdjacentHTML('beforeend', `
-<div style="margin: 40px 20px;">
-    <h3 style="margin-bottom:12px;">Sensor Telemetry Overview</h3>
-    <div style="width:100%; max-width:1200px; height:450px;">
-        <canvas id="finalChart"></canvas>
-    </div>
-</div>
-`);
-
-window.addEventListener('load', () => {
-    const ctx = document.getElementById('finalChart').getContext('2d');
-    new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: mockData.timestamps,
-            datasets: [
-                { label: 'Temperature (°C)', data: mockData.temperature, borderColor: '#ff4d4f', tension: 0.3 },
-                { label: 'Humidity (%)', data: mockData.humidity, borderColor: '#4080ff', tension: 0.3 },
-                { label: 'Light (lux)', data: mockData.light, borderColor: '#ffab00', tension: 0.3 },
-                { label: 'Plant Height (cm)', data: mockData.height, borderColor: '#00b42a', tension: 0.3 }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                x: { title: { display: true, text: 'Time' } },
-                y: { title: { display: true, text: 'Value' } }
-            }
-        }
-    });
-});
-</script>
 </body>
 </html>
