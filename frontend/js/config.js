@@ -19,20 +19,32 @@ const CONFIG = {
   REFRESH_CHARTS: 30000,  // charts      — every 30 seconds
   REFRESH_ALERTS: 15000,  // alerts      — every 15 seconds
 
-  // ── Default warning thresholds ─────────────────────────────
+  // ── Default thresholds ─────────────────────────────
   //    (can also be changed live on the Control Variables page)
   DEFAULTS: {
-    temp_warn:        28,   // °C
-    hum_warn:         80,   // %
-    light_warn:       200,  // lux
-    height_warn:      35,   // cm
-    temp_interval:    30,   // seconds
-    hum_interval:     30,
-    light_interval:   15,
-    motion_interval:  10,
-    height_interval:  120,
-    cam_schedule:     '08:00, 14:00, 20:00',
-    cam_interval:     360,  // minutes
+    temp_min:         15,
+    temp_max:         30,
+    temp_warn:         5,   // °C
+    temp_int:         60,   // seconds
+    hum_min:          20,
+    hum_max:          40,
+    hum_warn:          5,   // %
+    hum_interval:     60, // seconds
+    light_min:      5000,
+    light_max:     10000,
+    light_warn:      500,  // lux
+    light_interval:   60, // seconds
+    motion_min:        1,
+    motion_max:        0,
+    motion_warn:       1,
+    motion_interval:  20, // seconds
+    height_min:        0,
+    height_max:    10000,
+    height_warn:       5,   // cm
+    height_interval:1440,   // minutes
+    cam_on_motion:     0,
+    cam_on_alert:      0,
+    cam_interval:     60,  // minutes
   },
 
   // ── API endpoint paths ─────────────────────────────────────
@@ -72,64 +84,170 @@ const API_BASE = (function () {
 
 // ── Controls ─────────────────────────────────────────────────
 // Expected JSON: { group, temp_warn, temp_interval, hum_warn, hum_interval, … }
-async function fetchControls() {
-  const group = document.getElementById('groupSelect')?.value || 1;
-  try {
-    const d = await apiFetch(CONFIG.ENDPOINTS.control);
 
-    if (d.temp_warn != null)       document.getElementById('warn-temp').value = d.temp_warn;
-    if (d.temp_interval != null)   document.getElementById('int-temp').value = d.temp_interval;
-    if (d.hum_warn != null)        document.getElementById('warn-hum').value = d.hum_warn;
-    if (d.hum_interval != null)    document.getElementById('int-hum').value = d.hum_interval;
-    if (d.light_warn != null)      document.getElementById('warn-light').value = d.light_warn;
-    if (d.light_interval != null)  document.getElementById('int-light').value = d.light_interval;
-    if (d.motion_interval != null) document.getElementById('int-motion').value = d.motion_interval;
-    if (d.height_warn != null)     document.getElementById('warn-height').value = d.height_warn;
-    if (d.height_interval != null) document.getElementById('int-height').value = d.height_interval;
-    if (d.cam_schedule != null)    document.getElementById('cam-schedule').value = d.cam_schedule;
-    if (d.cam_interval != null)    document.getElementById('int-cam').value = d.cam_interval;
-  } catch {
-    /* use defaults */
+async function fetchControls() { //use this one
+  const group = document.getElementById("groupSelect").value;
+
+  try {
+    const res = await fetch(`${API_BASE}${CONFIG.ENDPOINTS.control}?group=${group}`);
+    if (!res.ok) {
+      console.error("Failed to load controls");
+      return;
+    }
+    const data = await res.json();
+
+    // Temperature
+    if (data.temperature){
+      document.getElementById("temp-min").value = data.temperature.min ?? "";
+      document.getElementById("temp-max").value = data.temperature.max ?? "";
+      document.getElementById("warn-temp").value = data.temperature.warn ?? "";
+      document.getElementById("int-temp").value = data.temperature.interval ?? "";
+    }
+
+    // Humidity
+    if (data.humidity){
+      document.getElementById("humid-min").value = data.humidity.min ?? "";
+      document.getElementById("humid-max").value = data.humidity.max ?? "";
+      document.getElementById("warn-hum").value = data.humidity.warn ?? "";
+      document.getElementById("int-hum").value = data.humidity.interval ?? "";
+    }
+
+    // Light
+    if (data.light){
+      document.getElementById("light-min").value = data.light.min ?? "";
+      document.getElementById("light-max").value = data.light.max ?? "";
+      document.getElementById("warn-light").value = data.light.warn ?? "";
+      document.getElementById("int-light").value = data.light.interval ?? "";
+    }
+
+    // Motion
+    if (data.motion){
+      document.getElementById("motion-min").value = data.motion.min ?? "";
+      document.getElementById("motion-max").value = data.motion.max ?? "";
+      document.getElementById("warn-motion").value = data.motion.warn ?? "";
+      document.getElementById("int-motion").value = data.motion.interval ?? "";
+    }
+
+    // Height
+    if (data.height){
+      document.getElementById("height-min").value = data.height.min ?? "";
+      document.getElementById("height-max").value = data.height.max ?? "";
+      document.getElementById("warn-height").value = data.height.warn ?? "";
+      document.getElementById("int-height").value = data.height.interval ?? "";
+    }
+
+    // Camera
+    if (data.camera){
+      document.getElementById("cam-on-motion").value = data.camera.on_motion ?? "";
+      document.getElementById("cam-on-alert").checked = !!data.camera.on_alert;
+      document.getElementById("int-cam").value = data.camera.interval ?? "";
+    }
+
+  } catch (err) {
+    console.error(err);
   }
 }
 
-async function saveControls() {
-  const group = document.getElementById('groupSelect')?.value || 1;
-  const payload = {
-    group: parseInt(group, 10),
-    temp_warn:       parseFloat(document.getElementById('warn-temp').value),
-    temp_interval:   parseInt(document.getElementById('int-temp').value, 10),
-    hum_warn:        parseFloat(document.getElementById('warn-hum').value),
-    hum_interval:    parseInt(document.getElementById('int-hum').value, 10),
-    light_warn:      parseFloat(document.getElementById('warn-light').value),
-    light_interval:  parseInt(document.getElementById('int-light').value, 10),
-    motion_interval: parseInt(document.getElementById('int-motion').value, 10),
-    height_warn:     parseFloat(document.getElementById('warn-height').value),
-    height_interval: parseInt(document.getElementById('int-height').value, 10),
-    cam_schedule:    document.getElementById('cam-schedule').value,
-    cam_interval:    parseInt(document.getElementById('int-cam').value, 10),
+function getControlData() {
+  return {
+    group: document.getElementById("groupSelect").value,
+
+    temperature: {
+      min: parseFloat(document.getElementById("temp-min").value),
+      max: parseFloat(document.getElementById("temp-max").value),
+      warn: parseFloat(document.getElementById("warn-temp").value),
+      interval: parseInt(document.getElementById("int-temp").value, 10)
+    },
+
+    humidity: {
+      min: parseFloat(document.getElementById("humid-min").value),
+      max: parseFloat(document.getElementById("humid-max").value),
+      warn: parseFloat(document.getElementById("warn-hum").value),
+      interval: parseInt(document.getElementById("int-hum").value, 10)
+    },
+
+    light: {
+      min: parseFloat(document.getElementById("light-min").value),
+      max: parseFloat(document.getElementById("light-max").value),
+      warn: parseFloat(document.getElementById("warn-light").value),
+      interval: parseInt(document.getElementById("int-light").value, 10)
+    },
+
+    motion: {
+      min: parseFloat(document.getElementById("motion-min").value),
+      max: parseFloat(document.getElementById("motion-max").value),
+      warn: parseFloat(document.getElementById("warn-motion").value),
+      interval: parseInt(document.getElementById("int-motion").value, 10)
+    },
+
+    height: {
+      min: parseFloat(document.getElementById("height-min").value),
+      max: parseFloat(document.getElementById("height-max").value),
+      warn: parseFloat(document.getElementById("warn-height").value),
+      interval: parseInt(document.getElementById("int-height").value, 10)
+    },
+
+    camera: {
+      on_motion: document.getElementById("cam-on-motion").value,
+      on_alert: document.getElementById("cam-on-alert").checked,
+      interval: parseInt(document.getElementById("int-cam").value, 10)
+    }
   };
+}
+  
+async function saveControls() {
+  const data = getControlData();
+
+  if (!validateControls(data)) return;
 
   try {
-    await apiPost(CONFIG.ENDPOINTS.control, payload);
-    fireAlert('ok', 'Settings Saved', 'Group ' + group + ' configuration updated.', 4000);
-  } catch {
-    fireAlert('warning', 'Save Failed', 'Could not reach server. Check your connection.', 5000);
+    const res = await fetch(`${API_BASE}${CONFIG.ENDPOINTS.control}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(data)
+    });
+
+    const result = await res.json();
+
+    if (!res.ok) {
+      fireAlert('warning', 'Save Failed', result.error || 'Server error', 5000);
+      return;
+    }
+
+    fireAlert('ok', 'Saved', 'Settings updated successfully', 4000);
+
+  } catch (err) {
+    console.error(err);
+    fireAlert('warning', 'Connection Error', 'Could not reach server', 5000);
   }
 }
 
 function resetDefaults() {
   const d = CONFIG.DEFAULTS;
+  document.getElementById('temp-min').value = d.temp_min;
+  document.getElementById('temp-max').value = d.temp_max;
   document.getElementById('warn-temp').value = d.temp_warn;
   document.getElementById('int-temp').value = d.temp_interval;
+  document.getElementById('hum-min').value = d.hum_min;
+  document.getElementById('hum-max').value = d.hum_max;
   document.getElementById('warn-hum').value = d.hum_warn;
   document.getElementById('int-hum').value = d.hum_interval;
+  document.getElementById('light-min').value = d.light_min;
+  document.getElementById('light-max').value = d.light_max;
   document.getElementById('warn-light').value = d.light_warn;
   document.getElementById('int-light').value = d.light_interval;
+  document.getElementById('motion-min').value = d.motion_min;
+  document.getElementById('motion-max').value = d.motion_max;
   document.getElementById('int-motion').value = d.motion_interval;
+  document.getElementById('warn-motion').value = d.motion_warn;
+  ocument.getElementById('height-min').value = d.height_min;
+  document.getElementById('height-max').value = d.height_max;
+  document.getElementById('int-height').value = d.height_interval_interval;
   document.getElementById('warn-height').value = d.height_warn;
-  document.getElementById('int-height').value = d.height_interval;
-  document.getElementById('cam-schedule').value = d.cam_schedule;
+  document.getElementById('cam-on-motion').value = d.cam_on_motion;
+  document.getElementById('cam-on-alert').value = d.cam_on_alert;
   document.getElementById('int-cam').value = d.cam_interval;
 
   fireAlert('info', 'Defaults Restored', 'All thresholds reset to defaults. Hit Save to apply.', 5000);
@@ -166,3 +284,74 @@ document.addEventListener('DOMContentLoaded', async () => {
   attachRangeValidation('light-min', 'light-max');
   attachRangeValidation('height-min', 'height-max');
 });
+
+function validateControls(data) {
+
+  // ── Temperature ──
+  if (isNaN(data.temperature.min) || isNaN(data.temperature.max)) {
+    alert("Temperature values must be numbers");
+    return false;
+  }
+
+  if (data.temperature.min >= data.temperature.max) {
+    alert("Temperature min must be less than max");
+    return false;
+  }
+
+  if (data.temperature.warn > data.temperature.max) {
+    alert("Temperature warning cannot exceed max");
+    return false;
+  }
+
+  // ── Humidity ──
+  if (isNaN(data.humidity.min) || isNaN(data.humidity.max)) {
+    alert("Humidity values must be numbers");
+    return false;
+  }
+
+  if (data.humidity.min < 0 || data.humidity.max > 100) {
+    alert("Humidity must be between 0 and 100");
+    return false;
+  }
+
+  if (data.humidity.warn > 100) {
+    alert("Humidity warning cannot exceed 100%");
+    return false;
+  }
+
+  // ── Light ──
+  if (isNaN(data.light.min) || isNaN(data.light.max)) {
+    alert("Light values must be numbers");
+    return false;
+  }
+
+  if (data.light.min >= data.light.max) {
+    alert("Light min must be less than max");
+    return false;
+  }
+
+  // ── Height ──
+  if (isNaN(data.height.min) || isNaN(data.height.max)) {
+    alert("Height values must be numbers");
+    return false;
+  }
+
+  if (data.height.min >= data.height.max) {
+    alert("Height min must be less than max");
+    return false;
+  }
+
+  // ── Camera ──
+  if (isNaN(data.camera.interval) || data.camera.interval <= 0) {
+    alert("Camera interval must be a positive number");
+    return false;
+  }
+
+  // ── Motion (optional but good) ──
+  if (isNaN(data.motion.interval) || data.motion.interval <= 0) {
+    alert("Motion interval must be a positive number");
+    return false;
+  }
+
+  return true;
+}

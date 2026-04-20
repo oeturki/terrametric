@@ -47,14 +47,12 @@
 
 <main class="main">
 
-
-<div class="page active" id="page-control">
+<!-- ══ CONTROL VARIABLES ══ -->
+  <div class="page" id="page-control">
   <div class="topbar">
     <div><div class="page-title">Control Variables</div><div class="page-subtitle">Thresholds · Sampling Intervals</div></div>
     <div class="topbar-right">
       <button class="alert-bell-btn" onclick="toggleDD()">🔔<span class="bell-count">0</span></button>
-      <button class="btn btn-ghost" onclick="resetDefaults()">Reset Defaults</button>
-      <button class="btn btn-primary" onclick="saveControls()">💾 Save Changes</button>
     </div>
   </div>
   <div class="persistent-banner"><span class="banner-icon">⚠</span><span class="banner-text"></span><span class="banner-dismiss" onclick="dismissBanner()">✕</span></div>
@@ -72,47 +70,50 @@
     <div class="sensor-grid">
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">🌡</div><div class="sensor-name">Temperature</div></div>
-        <div class="field-row"><span class="field-label">Current</span><div class="live-val" id="ctrl-temp">-- °C</div></div>
-        <div class="field-row"><span class="field-label">Warning</span><input class="field-input" id="warn-temp" value="28" placeholder="°C threshold"></div>
-        <div class="field-row"><span class="field-label">Interval</span><input class="field-input" id="int-temp" value="30" placeholder="seconds"></div>
+        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="temp-min" value="20" min="-100" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="temp-max" value="30" min="0" max="100"><span class="unit">°C</span></div></div>
+        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-temp" value="28" placeholder="°C threshold"></div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-temp" value="30" placeholder="seconds"></div>
       </div>
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">💧</div><div class="sensor-name">Humidity</div></div>
-        <div class="field-row"><span class="field-label">Current</span><div class="live-val" id="ctrl-hum">-- %</div></div>
-        <div class="field-row"><span class="field-label">Warning</span><input class="field-input" id="warn-hum" value="80" placeholder="% threshold"></div>
-        <div class="field-row"><span class="field-label">Interval</span><input class="field-input" id="int-hum" value="30" placeholder="seconds"></div>
+        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="humid-min" value="20" min="0" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="humid-max" value="30" min="0" max="100"><span class="unit">%</span></div></div>
+        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-hum" value="80" placeholder="% threshold"></div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-hum" value="30" placeholder="seconds"></div>
       </div>
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">☀</div><div class="sensor-name">Light</div></div>
-        <div class="field-row"><span class="field-label">Current</span><div class="live-val" id="ctrl-light">-- lux</div></div>
-        <div class="field-row"><span class="field-label">Warning</span><input class="field-input" id="warn-light" value="200" placeholder="lux threshold"></div>
-        <div class="field-row"><span class="field-label">Interval</span><input class="field-input" id="int-light" value="15" placeholder="seconds"></div>
+        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="light-min" value="20" min="0" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="light-max" value="30" min="0" max="100"><span class="unit">lux</span></div></div>
+        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-light" value="200" placeholder="lux threshold"></div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-light" value="15" placeholder="seconds"></div>
       </div>
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">👁</div><div class="sensor-name">Motion (PIR)</div></div>
-        <div class="field-row"><span class="field-label">Current</span><div class="live-val" id="ctrl-motion">--</div></div>
-        <div class="field-row"><span class="field-label">Warning</span><input class="field-input" id="warn-motion" value="5" placeholder="events/min"></div>
-        <div class="field-row"><span class="field-label">Interval</span><input class="field-input" id="int-motion" value="10" placeholder="seconds"></div>
+        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="motion-min" value="20" min="0" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="motion-max" value="30" min="0" max="100"><span class="unit"></span></div></div>
+        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-motion" value="5" placeholder="events/min"></div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-motion" value="10" placeholder="seconds"></div>
       </div>
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">📏</div><div class="sensor-name">Height (Ultrasonic)</div></div>
-        <div class="field-row"><span class="field-label">Current</span><div class="live-val" id="ctrl-height">-- cm</div></div>
-        <div class="field-row"><span class="field-label">Warning</span><input class="field-input" id="warn-height" value="35" placeholder="cm max"></div>
-        <div class="field-row"><span class="field-label">Interval</span><input class="field-input" id="int-height" value="120" placeholder="seconds"></div>
+        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="height-min" value="20" min="0" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="height-max" value="30" min="0" max="100"><span class="unit">cm</span></div></div>
+        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-height" value="35" placeholder="cm max"></div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-height" value="120" placeholder="seconds"></div>
       </div>
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">📷</div><div class="sensor-name">Camera</div></div>
-        <div class="field-row"><span class="field-label">Last Shot</span><div class="live-val" id="ctrl-cam" style="font-size:11px;">--</div></div>
-        <div class="field-row"><span class="field-label">Capture At</span><input class="field-input" id="warn-cam" value="08:00, 14:00, 20:00" placeholder="HH:MM times"></div>
-        <div class="field-row"><span class="field-label">Interval</span><input class="field-input" id="int-cam" value="360" placeholder="minutes"></div>
+        <div class="field-row"><span class="field-label">Capture on Motion</span><label class="switch"><input type="checkbox" id="cam-on-motion"><span class="slider"></span></label></div>
+        <div class="field-row"><span class="field-label">Capture on Warning</span><label class="switch"><input type="checkbox" id="cam-on-alert"><span class="slider"></span></label></div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-cam" value="360" placeholder="minutes"></div> <!-- ══ Add dropdown menu options + custom ══ -->
       </div>
     </div>
     <div class="save-row">
-      <button class="btn btn-ghost" onclick="fetchControls()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveControls()">💾 Save Group Config</button>
+      <button class="btn btn-primary" onclick="resetDefaults()">Reset to Defaults</button>
+      <div style="margin-left:auto;"></div>
+        <button class="btn btn-ghost" onclick="fetchControls()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveControls()">💾 Save Changes</button> <!-- ══ 💾 Save Group Config ══ -->
     </div>
   </div>
 </div>
+
 </main>
 <script src="js/config.js"></script>
 <script src="js/alerts.js"></script>
