@@ -36,6 +36,13 @@ API calls are proxied to the backend.
 
 Open `arduino/arduino_bluetooth/arduino_bluetooth.ino` in Arduino IDE and upload to board.
 
+## Raspberry Pi (live Arduino → backend)
+
+To feed real HC-05 Bluetooth readings into the backend running on a Pi, follow
+[pi-setup.md](pi-setup.md). It covers pairing the HC-05, binding `/dev/rfcomm0`,
+and running `pi/arduino_bridge.py` which forwards each JSON line to
+`POST /api/telemetry/ingest`.
+
 ## Node-RED
 
 Import `node-red/flows.json` into Node-RED on the Raspberry Pi.

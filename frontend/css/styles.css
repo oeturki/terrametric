@@ -211,6 +211,21 @@ body { font-family: 'DM Mono', monospace; background: var(--cream); color: var(-
 .gm { flex: 1; text-align: center; }
 .gm-label { font-size: 8px; letter-spacing: .15em; text-transform: uppercase; color: var(--bark-mid); margin-bottom: 3px; }
 .gm-val { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 14px; }
+.gm-val.over { color: #b8392b; }
+/* Researcher stats grid that replaces .graph-mini for the four sensor cards. */
+.graph-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px 14px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #fbf8ee;
+  border: 1px solid var(--cream-dark);
+  border-radius: 8px;
+}
+.graph-stats .gm { text-align: left; flex: none; }
+.graph-stats .gm-label { font-size: 9px; }
+.graph-stats .gm-val { font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 700; color: var(--bark-dark); }
 
 /* ══════════════════════════════════════════
    GALLERY

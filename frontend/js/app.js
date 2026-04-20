@@ -6,15 +6,63 @@
 let isConnected = false;
 
 // ── Page navigation ──────────────────────────
+// index.html holds all sections. Standalone *.html files only contain one section — goTo would fail.
+// If the target section is missing, send the user to the SPA shell on index.html.
 
-function goTo(page, navEl) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById('page-' + page).classList.add('active');
-  if (navEl) navEl.classList.add('active');
-  if (page === 'samples')  buildTrayList();
+function _afterPageShow(page) {
+  if (page === 'samples') {
+    buildTrayList();
+    if (typeof loadDevicesForSamples === 'function') loadDevicesForSamples();
+    if (typeof refreshActiveRecording === 'function') refreshActiveRecording();
+  }
   if (page === 'viewdata') buildGalleryTabs();
 }
+
+function goTo(page, navEl) {
+  const target = document.getElementById('page-' + page);
+  if (!target) {
+    window.location.assign(new URL('index.html#' + page, window.location.href).href);
+    return;
+  }
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  target.classList.add('active');
+  if (navEl) navEl.classList.add('active');
+  try {
+    if (document.getElementById('page-home')) {
+      history.replaceState(null, '', '#' + page);
+    }
+  } catch (e) { /* file:// or restricted */ }
+  _afterPageShow(page);
+}
+
+/** When using index.html as SPA: sync sidebar to URL hash (e.g. bookmark index.html#samples). */
+function applyRouteFromHash() {
+  if (!document.getElementById('page-home')) return;
+  const raw = (location.hash || '#home').replace(/^#/, '').trim();
+  const valid = ['home', 'viewdata', 'control', 'samples'];
+  const page = valid.includes(raw) ? raw : 'home';
+  const navItems = document.querySelectorAll('.nav-item');
+  const map = { home: 0, viewdata: 1, control: 2, samples: 3 };
+  const idx = map[page];
+  if (navItems[idx]) goTo(page, navItems[idx]);
+}
+
+window.addEventListener('hashchange', function () {
+  if (!document.getElementById('page-home')) return;
+  const raw = (location.hash || '#home').replace(/^#/, '').trim();
+  const valid = ['home', 'viewdata', 'control', 'samples'];
+  if (!valid.includes(raw)) return;
+  const target = document.getElementById('page-' + raw);
+  if (!target) return;
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  target.classList.add('active');
+  const navItems = document.querySelectorAll('.nav-item');
+  const map = { home: 0, viewdata: 1, control: 2, samples: 3 };
+  if (navItems[map[raw]]) navItems[map[raw]].classList.add('active');
+  _afterPageShow(raw);
+});
 
 function switchTab(tab, el) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -89,6 +137,7 @@ function downloadFile(name, content, type) {
 
 // ── Boot sequence ────────────────────────────
 
+populateGraphSampleSelect([]);
 buildTrayList();
 selectTray(0);
 buildGalleryTabs();
@@ -97,6 +146,10 @@ showChartsOffline();
 
 checkConnection();
 setInterval(checkConnection, 10000);
+
+if (typeof initSamplesRecordingUI === 'function') initSamplesRecordingUI();
+
+applyRouteFromHash();
 
 setInterval(() => { if (isConnected) fetchLatest(); },                                                        CONFIG.REFRESH_LIVE);
 setInterval(() => { if (isConnected) { fetchTelemetry(); fetchAlerts(); fetchAnomalies(); fetchGallery(); } }, CONFIG.REFRESH_CHARTS);

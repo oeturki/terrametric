@@ -150,3 +150,130 @@ function clearAlerts() {
   dismissBanner();
   document.getElementById('logEmpty').style.display = 'block';
 }
+
+// ── Destructive-action confirm modal ─────────────
+//
+// Async helper so destructive UI flows read top-to-bottom:
+//
+//   if (!await confirmModal({title, body, danger:true})) return;
+//
+// `requireType` (optional) forces the user to type a token (e.g. 'DELETE')
+// to enable Confirm — used for irreversible bulk wipes.
+
+let _modalStylesInjected = false;
+function _injectModalStyles() {
+  if (_modalStylesInjected) return;
+  _modalStylesInjected = true;
+  const css = `
+    .tm-modal-overlay{position:fixed;inset:0;background:rgba(20,18,14,.55);backdrop-filter:blur(2px);
+      display:flex;align-items:center;justify-content:center;z-index:9999;animation:tmFade .12s ease-out;}
+    .tm-modal{background:var(--bg,#fffaf2);color:var(--bark-dark,#322a1f);border-radius:10px;
+      box-shadow:0 24px 60px rgba(0,0,0,.35);max-width:440px;width:calc(100% - 32px);
+      padding:22px 22px 18px;font-family:system-ui,sans-serif;border:1px solid rgba(0,0,0,.08);}
+    .tm-modal__title{font-family:'Syne',sans-serif;font-weight:800;font-size:16px;margin:0 0 8px;
+      letter-spacing:.02em;}
+    .tm-modal__body{font-size:13px;line-height:1.55;color:var(--bark-mid,#5a4f3f);margin-bottom:14px;}
+    .tm-modal__type-row{margin-bottom:14px;}
+    .tm-modal__type-row label{display:block;font-size:11px;color:var(--bark-mid,#5a4f3f);
+      text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;}
+    .tm-modal__type-row input{width:100%;padding:8px 10px;font-family:'DM Mono',monospace;font-size:13px;
+      border:1px solid rgba(0,0,0,.18);border-radius:6px;background:#fff;}
+    .tm-modal__actions{display:flex;gap:10px;justify-content:flex-end;}
+    .tm-modal__actions .btn{min-width:90px;}
+    .tm-modal__btn-danger{background:#b8392b;color:#fff;border:1px solid #8a2818;}
+    .tm-modal__btn-danger:hover:not(:disabled){background:#9b2f24;}
+    .tm-modal__btn-danger:disabled{opacity:.45;cursor:not-allowed;}
+    @keyframes tmFade{from{opacity:0}to{opacity:1}}`;
+  const style = document.createElement('style');
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+
+function confirmModal(opts) {
+  _injectModalStyles();
+  const title       = (opts && opts.title) || 'Are you sure?';
+  const body        = (opts && opts.body) || '';
+  const danger      = !!(opts && opts.danger);
+  const confirmText = (opts && opts.confirmText) || (danger ? 'Delete' : 'Confirm');
+  const cancelText  = (opts && opts.cancelText) || 'Cancel';
+  const requireType = opts && opts.requireType ? String(opts.requireType) : null;
+
+  return new Promise(function (resolve) {
+    const overlay = document.createElement('div');
+    overlay.className = 'tm-modal-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'tm-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+
+    const h = document.createElement('h3');
+    h.className = 'tm-modal__title';
+    h.textContent = title;
+    modal.appendChild(h);
+
+    const p = document.createElement('div');
+    p.className = 'tm-modal__body';
+    if (body instanceof Node) p.appendChild(body); else p.innerHTML = body;
+    modal.appendChild(p);
+
+    let typeInput = null;
+    if (requireType) {
+      const row = document.createElement('div');
+      row.className = 'tm-modal__type-row';
+      const lbl = document.createElement('label');
+      lbl.textContent = 'Type ' + requireType + ' to confirm';
+      typeInput = document.createElement('input');
+      typeInput.type = 'text';
+      typeInput.autocomplete = 'off';
+      typeInput.spellcheck = false;
+      typeInput.placeholder = requireType;
+      row.appendChild(lbl);
+      row.appendChild(typeInput);
+      modal.appendChild(row);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'tm-modal__actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn btn-ghost';
+    cancelBtn.textContent = cancelText;
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.className = 'btn ' + (danger ? 'tm-modal__btn-danger' : 'btn-primary');
+    okBtn.textContent = confirmText;
+    actions.appendChild(cancelBtn);
+    actions.appendChild(okBtn);
+    modal.appendChild(actions);
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    function close(result) {
+      document.removeEventListener('keydown', onKey, true);
+      overlay.remove();
+      resolve(result);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') { e.stopPropagation(); close(false); }
+      if (e.key === 'Enter' && !okBtn.disabled) { e.stopPropagation(); close(true); }
+    }
+    document.addEventListener('keydown', onKey, true);
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) close(false);
+    });
+    cancelBtn.addEventListener('click', function () { close(false); });
+    okBtn.addEventListener('click', function () { close(true); });
+
+    if (typeInput) {
+      okBtn.disabled = true;
+      typeInput.addEventListener('input', function () {
+        okBtn.disabled = typeInput.value !== requireType;
+      });
+      setTimeout(function () { typeInput.focus(); }, 30);
+    } else {
+      setTimeout(function () { okBtn.focus(); }, 30);
+    }
+  });
+}
