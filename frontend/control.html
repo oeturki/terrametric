@@ -102,9 +102,18 @@
         <div class="sensor-header"><div class="sensor-icon-bg">📷</div><div class="sensor-name">Camera</div></div>
         <div class="field-row"><span class="field-label">Capture on Motion</span><label class="switch"><input type="checkbox" id="cam-on-motion"><span class="slider"></span></label></div>
         <div class="field-row"><span class="field-label">Capture on Warning</span><label class="switch"><input type="checkbox" id="cam-on-alert"><span class="slider"></span></label></div>
-        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-cam" value="360" placeholder="minutes"></div> <!-- ══ Add dropdown menu options + custom ══ -->
+        <!-- <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-cam" value="360" placeholder="minutes"></div> ══ Add dropdown menu options + custom ══ -->
+        <div class="field-row"> <span class="field-label">Read Interval</span> 
+          <select class="field-input" id="int-cam"> <!--drop down menu to have options for camera capture timinng and a custom option -->
+            <option value="1h">1 hour</option>
+            <option value="12h">12 hours</option>
+            <option value="24h">24 hours</option>
+            <option value="1w">1 week</option>
+            <option value="custom">Custom...</option>
+          </select>
       </div>
     </div>
+  </div>
     <div class="save-row">
       <button class="btn btn-primary" onclick="resetDefaults()">Reset to Defaults</button>
       <div style="margin-left:auto;"></div>
