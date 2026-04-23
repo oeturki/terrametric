@@ -1,12 +1,6 @@
-// ╔══════════════════════════════════════════════════════════════╗
 //  TERRAMETRIC — CONFIGURATION
-//  ← The ONLY file you and your teammates need to edit ←
-// ╠══════════════════════════════════════════════════════════════╣
-//
 //  Set PI_IP and PORT to match where you run uvicorn (see run_dashboard.bat).
 //  Default PORT is 8765 so it does not clash with other apps using 8000.
-//
-// ╚══════════════════════════════════════════════════════════════╝
 
 const CONFIG = {
 
@@ -34,8 +28,8 @@ const CONFIG = {
     light_max:     10000,
     light_warn:      500,  // lux
     light_interval:   60, // seconds
-    motion_min:        1,
-    motion_max:        0,
+    motion_min:        0,
+    motion_max:        1,
     motion_warn:       1,
     motion_interval:  20, // seconds
     height_min:        0,
@@ -138,7 +132,7 @@ async function fetchControls() { //use this one
 
     // Camera
     if (data.camera){
-      document.getElementById("cam-on-motion").value = data.camera.on_motion ?? "";
+      document.getElementById("cam-on-motion").checked = !!data.camera.on_motion;
       document.getElementById("cam-on-alert").checked = !!data.camera.on_alert;
       document.getElementById("int-cam").value = data.camera.interval ?? "";
     }
@@ -188,7 +182,7 @@ function getControlData() {
     },
 
     camera: {
-      on_motion: document.getElementById("cam-on-motion").value,
+      on_motion: document.getElementById("cam-on-motion").checked,
       on_alert: document.getElementById("cam-on-alert").checked,
       interval: parseInt(document.getElementById("int-cam").value, 10)
     }
@@ -215,6 +209,7 @@ async function saveControls() {
       fireAlert('warning', 'Save Failed', result.error || 'Server error', 5000);
       return;
     }
+    applyControlsToUI(result.controls);
 
     fireAlert('ok', 'Saved', 'Settings updated successfully', 4000);
 
@@ -224,33 +219,37 @@ async function saveControls() {
   }
 }
 
-function resetDefaults() {
-  const d = CONFIG.DEFAULTS;
-  document.getElementById('temp-min').value = d.temp_min;
-  document.getElementById('temp-max').value = d.temp_max;
-  document.getElementById('warn-temp').value = d.temp_warn;
-  document.getElementById('int-temp').value = d.temp_interval;
-  document.getElementById('hum-min').value = d.hum_min;
-  document.getElementById('hum-max').value = d.hum_max;
-  document.getElementById('warn-hum').value = d.hum_warn;
-  document.getElementById('int-hum').value = d.hum_interval;
-  document.getElementById('light-min').value = d.light_min;
-  document.getElementById('light-max').value = d.light_max;
-  document.getElementById('warn-light').value = d.light_warn;
-  document.getElementById('int-light').value = d.light_interval;
-  document.getElementById('motion-min').value = d.motion_min;
-  document.getElementById('motion-max').value = d.motion_max;
-  document.getElementById('int-motion').value = d.motion_interval;
-  document.getElementById('warn-motion').value = d.motion_warn;
-  ocument.getElementById('height-min').value = d.height_min;
-  document.getElementById('height-max').value = d.height_max;
-  document.getElementById('int-height').value = d.height_interval_interval;
-  document.getElementById('warn-height').value = d.height_warn;
-  document.getElementById('cam-on-motion').value = d.cam_on_motion;
-  document.getElementById('cam-on-alert').value = d.cam_on_alert;
-  document.getElementById('int-cam').value = d.cam_interval;
+async function resetControls() {
+  const group = document.getElementById("groupSelect").value;
 
-  fireAlert('info', 'Defaults Restored', 'All thresholds reset to defaults. Hit Save to apply.', 5000);
+  try {
+    const res = await fetch(`${API_BASE}/api/control/reset`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ group })
+    });
+    
+    const result = await res.json();
+
+    if (!res.ok) {
+      alert(result.error || "Reset failed");
+      return;
+    }
+
+    await fetchControls(); // reload UI
+
+    alert("Reset to defaults!");
+  } catch (err) {
+    console.error(err);
+    alert("Reset failed");
+  }
+}
+
+function cancelChanges() {
+  fetchControls(); // reload last saved values from backend
+  fireAlert('info', 'Changes Discarded', 'Reverted to last saved settings.', 3000);
 }
 
 // ── Range Validation ─────────────────────────────────────────
