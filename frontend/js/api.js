@@ -248,9 +248,30 @@ async function fetchTelemetry() {
     const sessHint = document.getElementById('graphActiveSessionHint');
     if (sessHint) { sessHint.textContent = ''; sessHint.style.display = 'none'; }
     const meta = document.getElementById('graphRowMeta');
-    if (meta) meta.textContent = 'offline';
-    showChartsOffline();
+    if (meta) meta.textContent = 'offline · demo series';
+    const fallback = generateFallbackTelemetry(hourRange);
+    updateCharts(fallback);
   }
+}
+
+function generateFallbackTelemetry(hours = 24) {
+  const readings = [];
+  const baseTime = new Date();
+  baseTime.setHours(baseTime.getHours() - hours);
+
+  for (let i = 0; i < hours; i++) {
+    const timestamp = new Date(baseTime);
+    timestamp.setHours(timestamp.getHours() + i);
+
+    readings.push({
+      timestamp: timestamp.toISOString(),
+      temperature: parseFloat((18 + Math.random() * 14).toFixed(2)),
+      humidity: parseFloat((40 + Math.random() * 45).toFixed(2)),
+      light: parseFloat((50 + Math.random() * 1450).toFixed(2)),
+      height: parseFloat((10 + Math.random() * 30).toFixed(2))
+    });
+  }
+  return readings;
 }
 
 // ── Active alerts ────────────────────────────
@@ -296,51 +317,8 @@ window.addEventListener('samples:changed', function () {
   fetchSamples();
 });
 
-// ── Control variable settings ────────────────
-// Returns: { group, temp_warn, temp_interval, hum_warn, … }
-
-async function fetchControls() {
-  try {
-    const d = await apiFetch(CONFIG.ENDPOINTS.control);
-    if (d.temp_warn)      document.getElementById('warn-temp').value     = d.temp_warn;
-    if (d.temp_interval)  document.getElementById('int-temp').value      = d.temp_interval;
-    if (d.hum_warn)       document.getElementById('warn-hum').value      = d.hum_warn;
-    if (d.hum_interval)   document.getElementById('int-hum').value       = d.hum_interval;
-    if (d.light_warn)     document.getElementById('warn-light').value    = d.light_warn;
-    if (d.light_interval) document.getElementById('int-light').value     = d.light_interval;
-    if (d.motion_interval)document.getElementById('int-motion').value    = d.motion_interval;
-    if (d.height_warn)    document.getElementById('warn-height').value   = d.height_warn;
-    if (d.height_interval)document.getElementById('int-height').value    = d.height_interval;
-    if (d.cam_schedule)   document.getElementById('warn-cam').value      = d.cam_schedule;
-    if (d.cam_interval)   document.getElementById('int-cam').value       = d.cam_interval;
-  } catch { /* use defaults */ }
-}
-
-// ── Save control variables ───────────────────
-
-async function saveControls() {
-  const group = document.getElementById('groupSelect')?.value || 1;
-  const payload = {
-    group:           parseInt(group),
-    temp_warn:       parseFloat(document.getElementById('warn-temp').value),
-    temp_interval:   parseInt(document.getElementById('int-temp').value),
-    hum_warn:        parseFloat(document.getElementById('warn-hum').value),
-    hum_interval:    parseInt(document.getElementById('int-hum').value),
-    light_warn:      parseFloat(document.getElementById('warn-light').value),
-    light_interval:  parseInt(document.getElementById('int-light').value),
-    motion_interval: parseInt(document.getElementById('int-motion').value),
-    height_warn:     parseFloat(document.getElementById('warn-height').value),
-    height_interval: parseInt(document.getElementById('int-height').value),
-    cam_schedule:    document.getElementById('warn-cam').value,
-    cam_interval:    parseInt(document.getElementById('int-cam').value),
-  };
-  try {
-    await apiPost(CONFIG.ENDPOINTS.control, payload);
-    fireAlert('ok', 'Settings Saved', 'Group ' + group + ' configuration updated.', 4000);
-  } catch {
-    fireAlert('warning', 'Save Failed', 'Could not reach server. Check your connection.', 5000);
-  }
-}
+// Control variables: fetchControls / saveControls / resetControls / cancelChanges
+// are defined in config.js (nested JSON for /api/control). Do not redefine here.
 
 // ── Save a plant sample ──────────────────────
 

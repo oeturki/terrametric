@@ -1,4 +1,4 @@
-"""
+﻿"""
 FR1 / FR2 - Environmental Monitoring & Data Logging endpoints.
 Ingest sensor readings, query time-series data.
 """
