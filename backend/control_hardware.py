@@ -52,7 +52,10 @@ def read_sensors(): #how to read sensor data - see how omar got sensor data to b
     sensors = {
         "temperature": read_temperature_sensor(),
         "light": read_light_sensor(),
-        "height": read_ultrasonic_sensor()
+        "height": read_ultrasonic_sensor(),
+        "humidity": read_humidity_sensor(),
+        "motion": read_motion_sensor()
+        # figure out how to add camera?? 
     }
 
     # --- handle failures ---
@@ -67,7 +70,9 @@ def apply_controls(sensors, controls):
     temp = sensors.get("temperature")
     light = sensors.get("light")
     height = sensors.get("height")
-    if temp is None or light is None or height is None:
+    humidity = sensors.get("humidity")
+    motion = sensors.get("motion") #connect to camera
+    if temp is None or light is None or height is None or humidity is None or motion is None:
         print("⚠ Missing sensor data")
         return
 
@@ -89,6 +94,15 @@ def apply_controls(sensors, controls):
     height_warn = controls["height"]["warn"]
     height_high_t = height_max + height_warn
     height_low_t = height_min - height_warn
+
+    # humidity treshold calc 
+    humidity_min = controls["humidity"]["min"]
+    humidity_max = controls["humidity"]["max"]
+    humidity_warn = controls["humidity"]["warn"]
+    humidity_high_t = humidity_max + humidity_warn
+    humidity_low_t = humidity_min - humidity_warn
+
+    #motion -- to do
 
     if temp > temp_max:
         print("Fan ON") #connect to fan/motor
@@ -112,6 +126,13 @@ def apply_controls(sensors, controls):
         print("Please attend to your plants in group --, as they have grown above your desired height threshold.")
     elif height < height_low_t:
         print("Please attend to your plants in group --, as their height has decreased to below an abnormal threshold..")
+
+    if humidity > humidity_high_t:
+        print("Please attend to the humidity of your plants in group -- as it is too high.")
+        send_alert("humidity", "Critical high humidity!", "critical")
+    elif humidity < humidity_low_t:
+        print("Please attend to the humidity of your plants in group -- as it is too low.")
+        send_alert("humidity", "Critical low humidity!", "critical")
 
 
 def main_loop():
