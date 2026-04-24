@@ -32,7 +32,17 @@ def save_controls():
     group = str(data.get("group", "1"))
 
     existing = controls_db.get(group, {})
-    updated = {**existing, **data}
+    updated = copy.deepcopy(default_controls)
+
+    # merge existing
+    for key in existing:
+        if isinstance(existing[key], dict):
+            updated[key].update(existing[key])
+
+    # merge new data
+    for key in data:
+        if isinstance(data[key], dict):
+            updated[key].update(data[key])
 
     # Validation
     temp = updated.get("temperature", {})
@@ -64,6 +74,24 @@ def reset_controls():
         "group": group,
         "controls": controls_db[group]
     })
+
+alerts_db = []
+
+@app.route('/api/alerts', methods=['POST'])
+def create_alert():
+    data = request.json or {}
+
+    alert = {
+        "type": data.get("type", "info"),
+        "message": data.get("message", ""),
+        "sensor": data.get("sensor", ""),
+        "group": data.get("group", "1"),
+        "timestamp": time.time()
+    }
+
+    alerts_db.append(alert)
+
+    return jsonify({"status": "ok"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)

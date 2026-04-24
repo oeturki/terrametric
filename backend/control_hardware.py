@@ -7,6 +7,27 @@ controls_cache = None
 last_fetch_time = 0
 FETCH_INTERVAL = 10  # seconds
 
+ALERT_API = "http://127.0.0.1:8000/api/alerts"
+last_alert_time = {}
+
+def send_alert(sensor, message, level="warning", group="1", cooldown=30):
+    now = time.time()
+    key = f"{sensor}:{message}"
+
+    if key in last_alert_time and now - last_alert_time[key] < cooldown:
+        return  # skip duplicate
+
+    last_alert_time[key] = now
+
+    try:
+        requests.post(ALERT_API, json={
+            "sensor": sensor,
+            "message": message,
+            "type": level,
+            "group": group
+        }, timeout=2)
+    except Exception as e:
+        print("⚠ Failed to send alert:", e)
 
 def get_controls():
     global controls_cache, last_fetch_time
@@ -26,37 +47,43 @@ def get_controls():
 
     return controls_cache
 
-def read_sensors():
-    return {
-        "temperature": 32,
-        "light": 50,
-        "height": 7
+
+def read_sensors(): #how to read sensor data - see how omar got sensor data to be read
+    sensors = {
+        "temperature": read_temperature_sensor(),
+        "light": read_light_sensor(),
+        "height": read_ultrasonic_sensor()
     }
+
+    # --- handle failures ---
+    for name, value in sensors.items():
+        if value is None:
+            print(f"⚠ {name} sensor failed")
+
+    return sensors
 
 
 def apply_controls(sensors, controls):
     temp = sensors.get("temperature")
     light = sensors.get("light")
     height = sensors.get("height")
-
     if temp is None or light is None or height is None:
         print("⚠ Missing sensor data")
         return
 
-def apply_controls(sensors, controls):
-    temp = sensors["temperature"]
+    
     temp_min = controls["temperature"]["min"]
     temp_max = controls["temperature"]["max"]
     temp_warn = controls["temperature"]["warn"]
     temp_high_t = temp_max + temp_warn
     temp_low_t  = temp_min - temp_warn
-    light = sensors["light"]
+    
     light_min = controls["light"]["min"]
     light_max = controls["light"]["max"]
     light_warn = controls["light"]["warn"]
     light_high_t = light_max + light_warn
     light_low_t = light_min - light_warn
-    height = sensors["height"]
+    
     height_min = controls["height"]["min"]
     height_max = controls["height"]["max"]
     height_warn = controls["height"]["warn"]
@@ -64,14 +91,27 @@ def apply_controls(sensors, controls):
     height_low_t = height_min - height_warn
 
     if temp > temp_max:
-        print("Fan ON")
+        print("Fan ON") #connect to fan/motor
     else:
-        print("Fan OFF")
+        print("Fan OFF") #connect to fan/motor
     
     if temp > temp_high_t:
         print("Please attend to the temperature of your plants in group --, as it is too hot/high.")
+        send_alert("temperature", "Critical high temperature!", "critical")
+        f"Temperature {temp}°C exceeded max {temp_high_t}°C"
     elif temp < temp_low_t:
         print("Please attend to the temperature of your plants in group --, as it is too cold/cool/low.")
+        send_alert("temperature", "Critical low temperature!", "critical")
+    
+    if light > light_high_t:
+        print("Please attend to the light intensity of your plants in group --, as it is too hot/high.")
+    elif light < light_low_t:
+        print("Please attend to the light intensity of your plants in group --, as it is too cold/cool/low.")
+
+    if height > height_high_t:
+        print("Please attend to your plants in group --, as they have grown above your desired height threshold.")
+    elif height < height_low_t:
+        print("Please attend to your plants in group --, as their height has decreased to below an abnormal threshold..")
 
 
 def main_loop():
@@ -87,3 +127,9 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
+# make print statements alerts, how often alerts? like just once or every five seconds until issue is fixed for urgent or critical ones?
+# read every interval, 
+# read sensors and connect to controlling motor/fan, 
+# allow the alert to state what plant group is affected. and not just group 1
+# validation

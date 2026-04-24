@@ -50,6 +50,10 @@ const CONFIG = {
     alerts:    '/api/alerts/active',
     anomalies: '/api/anomalies',
     plants:    '/api/plants',
+    devices:   '/api/devices',
+    sessionsActive: '/api/sessions/active',
+    sessionsStart:  '/api/sessions/start',
+    dummyBackfill:  '/api/dummy/backfill',
     control:   '/api/control',
     camera:    '/api/camera/images',
   },
@@ -134,7 +138,7 @@ async function fetchControls() { //use this one
     if (data.camera){
       document.getElementById("cam-on-motion").checked = !!data.camera.on_motion;
       document.getElementById("cam-on-alert").checked = !!data.camera.on_alert;
-      document.getElementById("int-cam").value = data.camera.interval ?? "";
+      document.getElementById("int-cam").value = data.camera.interval ?? ""; //is this still right?
     }
 
   } catch (err) {
@@ -184,7 +188,7 @@ function getControlData() {
     camera: {
       on_motion: document.getElementById("cam-on-motion").checked,
       on_alert: document.getElementById("cam-on-alert").checked,
-      interval: parseInt(document.getElementById("int-cam").value, 10)
+      interval: parseInt(document.getElementById("int-cam").value, 10) //is this still right?
     }
   };
 }
