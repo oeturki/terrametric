@@ -134,11 +134,22 @@ async function fetchControls() { //use this one
       document.getElementById("int-height").value = data.height.interval ?? "";
     }
 
-    // Camera
+    // Camera — supports both <select> (index.html) and plain input variants.
     if (data.camera){
-      document.getElementById("cam-on-motion").checked = !!data.camera.on_motion;
-      document.getElementById("cam-on-alert").checked = !!data.camera.on_alert;
-      document.getElementById("int-cam").value = data.camera.interval ?? ""; //is this still right?
+      const mEl = document.getElementById("cam-on-motion");
+      const aEl = document.getElementById("cam-on-alert");
+      if (mEl) mEl.checked = !!data.camera.on_motion;
+      if (aEl) aEl.checked = !!data.camera.on_alert;
+      const intEl = document.getElementById("int-cam");
+      if (intEl) {
+        const mins = Number(data.camera.interval);
+        if (intEl.tagName === "SELECT" && !isNaN(mins)) {
+          const rev = { 60: "1h", 720: "12h", 1440: "24h", 10080: "1w" };
+          intEl.value = rev[mins] != null ? rev[mins] : "1h";
+        } else {
+          intEl.value = data.camera.interval != null ? String(data.camera.interval) : "";
+        }
+      }
     }
 
   } catch (err) {
@@ -185,11 +196,25 @@ function getControlData() {
       interval: parseInt(document.getElementById("int-height").value, 10)
     },
 
-    camera: {
-      on_motion: document.getElementById("cam-on-motion").checked,
-      on_alert: document.getElementById("cam-on-alert").checked,
-      interval: parseInt(document.getElementById("int-cam").value, 10) //is this still right?
-    }
+    camera: (function () {
+      const intEl = document.getElementById("int-cam");
+      let minutes = 60;
+      if (intEl) {
+        if (intEl.tagName === "SELECT") {
+          const m = { "1h": 60, "12h": 720, "24h": 1440, "1w": 10080, custom: 60 };
+          minutes = m[intEl.value] != null ? m[intEl.value] : 60;
+        } else {
+          minutes = parseInt(intEl.value, 10) || 60;
+        }
+      }
+      const motion = document.getElementById("cam-on-motion");
+      const alertEl = document.getElementById("cam-on-alert");
+      return {
+        on_motion: motion ? motion.checked : false,
+        on_alert: alertEl ? alertEl.checked : false,
+        interval: minutes,
+      };
+    })()
   };
 }
   

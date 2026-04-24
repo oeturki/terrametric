@@ -22,3 +22,44 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def run_sqlite_migrations(engine) -> None:
+    """
+    Lightweight idempotent SQLite migrations applied on every startup. SQLAlchemy's
+    create_all only creates *missing* tables — it never adds columns to an existing
+    table — so we hand-add columns here.
+
+    Currently:
+      * telemetry.plant_id (Phase 1 of the GMO research design)
+      * recording_sessions.scenario / dummy_stream / stream_interval_sec (Phase 2)
+    """
+    if "sqlite" not in str(engine.url):
+        return
+    from sqlalchemy import text
+
+    def _add_col_if_missing(conn, table: str, col: str, ddl: str) -> None:
+        cols = [row[1] for row in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()]
+        if col not in cols:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
+
+    with engine.begin() as conn:
+        # Telemetry: per-plant index column for fast graph queries.
+        _add_col_if_missing(conn, "telemetry", "plant_id", "plant_id INTEGER")
+        conn.execute(
+            text(
+                """
+                UPDATE telemetry SET plant_id = (
+                    SELECT rs.plant_id FROM recording_sessions rs WHERE rs.id = telemetry.session_id
+                )
+                WHERE session_id IS NOT NULL AND plant_id IS NULL
+                """
+            )
+        )
+
+        # RecordingSession: dummy-stream metadata so the UI can reflect what's running.
+        _add_col_if_missing(conn, "recording_sessions", "scenario", "scenario VARCHAR(32)")
+        _add_col_if_missing(conn, "recording_sessions", "dummy_stream",
+                            "dummy_stream BOOLEAN NOT NULL DEFAULT 0")
+        _add_col_if_missing(conn, "recording_sessions", "stream_interval_sec",
+                            "stream_interval_sec INTEGER")

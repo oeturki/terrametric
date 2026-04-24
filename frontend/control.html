@@ -1,136 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TerraMetric — Indoor Plant Research</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-  <!-- TerraMetric styles -->
-  <link rel="stylesheet" href="css/styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="refresh" content="0;url=index.html#control">
+  <title>TerraMetric — Control Variables</title>
+  <script>location.replace(new URL('index.html#control', window.location.href).href);</script>
 </head>
 <body>
-
-
-<!-- SIDEBAR -->
-<aside class="sidebar">
-  <div class="logo">
-    <div class="logo-mark">Group 14</div>
-    <div class="logo-title">TerraMetric</div>
-    <div class="logo-sub">Indoor Research Platform v1.0</div>
-  </div>
-  <nav class="nav">
-    <div class="nav-section">Main</div>
-    <div class="nav-item" onclick="goTo('home',this)"><span class="nav-icon">⌂</span><span>Home</span></div>
-    <div class="nav-section">Monitor</div>
-    <div class="nav-item" onclick="goTo('viewdata',this)"><span class="nav-icon">◈</span><span>View Data</span></div>
-    <div class="nav-section">Manage</div>
-    <div class="nav-item" onclick="goTo('control',this)" ><span class="nav-icon">⊞</span><span>Control Variables</span></div>
-    <div class="nav-item" onclick="goTo('samples',this)"><span class="nav-icon">⊙</span><span>Manage Samples</span></div>
-  </nav>
-  <div class="sidebar-footer">
-    <span class="status-dot" id="connDot"></span><span id="connLabel">CONNECTING…</span>
-  </div>
-</aside>
-
-<!-- GLOBAL OVERLAYS -->
-<div class="toast-stack" id="toastStack"></div>
-<div class="alert-dropdown" id="alertDD">
-  <div class="alert-dd-head">
-    <span class="alert-dd-title">⚠ Alert Log</span>
-    <span class="clear-btn" onclick="clearAlerts()">Clear all</span>
-  </div>
-  <div class="alert-log" id="alertLog">
-    <div class="log-empty" id="logEmpty"><div style="font-size:28px;margin-bottom:8px">🔔</div>No alerts yet</div>
-  </div>
-</div>
-
-<main class="main">
-
-<!-- ══ CONTROL VARIABLES ══ -->
-  <div class="page" id="page-control">
-  <div class="topbar">
-    <div><div class="page-title">Control Variables</div><div class="page-subtitle">Thresholds · Sampling Intervals</div></div>
-    <div class="topbar-right">
-      <button class="alert-bell-btn" onclick="toggleDD()">🔔<span class="bell-count">0</span></button>
-    </div>
-  </div>
-  <div class="persistent-banner"><span class="banner-icon">⚠</span><span class="banner-text"></span><span class="banner-dismiss" onclick="dismissBanner()">✕</span></div>
-  <div class="content">
-    <div class="control-top">
-      <span class="group-label">Control Group:</span>
-      <select class="group-select" id="groupSelect" onchange="fetchControls()">
-        <option value="1">Group 1</option>
-        <option value="2">Group 2</option>
-      </select>
-      <span style="font-size:10px;color:var(--bark-mid);">
-        Live readings update automatically. Edit thresholds and intervals, then hit Save.
-      </span>
-    </div>
-    <div class="sensor-grid">
-      <div class="sensor-card">
-        <div class="sensor-header"><div class="sensor-icon-bg">🌡</div><div class="sensor-name">Temperature</div></div>
-        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="temp-min" value="20" min="-100" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="temp-max" value="30" min="0" max="100"><span class="unit">°C</span></div></div>
-        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-temp" value="28" placeholder="°C threshold"></div>
-        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-temp" value="30" placeholder="seconds"></div>
-      </div>
-      <div class="sensor-card">
-        <div class="sensor-header"><div class="sensor-icon-bg">💧</div><div class="sensor-name">Humidity</div></div>
-        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="humid-min" value="20" min="0" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="humid-max" value="30" min="0" max="100"><span class="unit">%</span></div></div>
-        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-hum" value="80" placeholder="% threshold"></div>
-        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-hum" value="30" placeholder="seconds"></div>
-      </div>
-      <div class="sensor-card">
-        <div class="sensor-header"><div class="sensor-icon-bg">☀</div><div class="sensor-name">Light</div></div>
-        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="light-min" value="20" min="0" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="light-max" value="30" min="0" max="100"><span class="unit">lux</span></div></div>
-        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-light" value="200" placeholder="lux threshold"></div>
-        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-light" value="15" placeholder="seconds"></div>
-      </div>
-      <div class="sensor-card">
-        <div class="sensor-header"><div class="sensor-icon-bg">👁</div><div class="sensor-name">Motion (PIR)</div></div>
-        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="motion-min" value="20" min="0" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="motion-max" value="30" min="0" max="100"><span class="unit"></span></div></div>
-        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-motion" value="5" placeholder="events/min"></div>
-        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-motion" value="10" placeholder="seconds"></div>
-      </div>
-      <div class="sensor-card">
-        <div class="sensor-header"><div class="sensor-icon-bg">📏</div><div class="sensor-name">Height (Ultrasonic)</div></div>
-        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="height-min" value="20" min="0" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="height-max" value="30" min="0" max="100"><span class="unit">cm</span></div></div>
-        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-height" value="35" placeholder="cm max"></div>
-        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-height" value="120" placeholder="seconds"></div>
-      </div>
-      <div class="sensor-card">
-        <div class="sensor-header"><div class="sensor-icon-bg">📷</div><div class="sensor-name">Camera</div></div>
-        <div class="field-row"><span class="field-label">Capture on Motion</span><label class="switch"><input type="checkbox" id="cam-on-motion"><span class="slider"></span></label></div>
-        <div class="field-row"><span class="field-label">Capture on Warning</span><label class="switch"><input type="checkbox" id="cam-on-alert"><span class="slider"></span></label></div>
-        <!-- <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-cam" value="360" placeholder="minutes"></div> ══ Add dropdown menu options + custom ══ -->
-        <div class="field-row"> <span class="field-label">Read Interval</span> 
-          <select class="field-input" id="int-cam"> <!--drop down menu to have options for camera capture timing and a custom option -->
-            <option value="1h">1 hour</option>
-            <option value="12h">12 hours</option>
-            <option value="24h">24 hours</option>
-            <option value="1w">1 week</option>
-            <option value="custom">Custom...</option>
-          </select>
-      </div>
-    </div>
-  </div>
-    <div class="save-row">
-      <button class="btn btn-primary" onclick="resetControls()">Reset to Defaults</button>
-      <div style="margin-left:auto;"></div>
-        <button class="btn btn-ghost" onclick="cancelChanges()">Cancel</button>
-        <button class="btn btn-primary" onclick="saveControls()">💾 Save Changes</button> <!-- ══ 💾 Save Group Config ══ -->
-    </div>
-  </div>
-</div>
-
-</main>
-<script src="js/config.js"></script>
-<script src="js/alerts.js"></script>
-<script src="js/charts.js"></script>
-<script src="js/anomalies.js"></script>
-<script src="js/home.js"></script>
-<script src="js/samples.js"></script>
-<script src="js/api.js"></script>
-<script src="js/app.js"></script>
+  <p style="font-family:system-ui,sans-serif;padding:2rem;">Opening TerraMetric… <a href="index.html#control">Control Variables</a></p>
+  <noscript>
+    <p>JavaScript is disabled. <a href="index.html#control">Open the Control page in the app</a>.</p>
+  </noscript>
 </body>
 </html>

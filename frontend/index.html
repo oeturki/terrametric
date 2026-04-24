@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TerraMetric — Indoor Plant Research</title>
+
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Chart.js + plugins (annotations for threshold bands, zoom for pan/zoom) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+
+  <!-- TerraMetric styles -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="logo">
+    <div class="logo-mark">Group 14</div>
+    <div class="logo-title">TerraMetric</div>
+    <div class="logo-sub">Indoor Research Platform v1.0</div>
+  </div>
+  <nav class="nav">
+    <div class="nav-section">Main</div>
+    <div class="nav-item active" onclick="goTo('home',this)"><span class="nav-icon">⌂</span><span>Home</span></div>
+    <div class="nav-section">Monitor</div>
+    <div class="nav-item" onclick="goTo('viewdata',this)"><span class="nav-icon">◈</span><span>View Data</span></div>
+    <div class="nav-section">Manage</div>
+    <div class="nav-item" onclick="goTo('control',this)"><span class="nav-icon">⊞</span><span>Control Variables</span></div>
+    <div class="nav-item" onclick="goTo('samples',this)"><span class="nav-icon">⊙</span><span>Manage Samples</span></div>
+  </nav>
+  <div class="sidebar-footer">
+    <span class="status-dot" id="connDot"></span>
+    <span id="connLabel">CONNECTING…</span>
+  </div>
+</aside>
+
+<!-- GLOBAL OVERLAYS -->
+<div class="toast-stack" id="toastStack"></div>
+<div class="alert-dropdown" id="alertDD">
+  <div class="alert-dd-head">
+    <span class="alert-dd-title">⚠ Alert Log</span>
+    <span class="clear-btn" onclick="clearAlerts()">Clear all</span>
+  </div>
+  <div class="alert-log" id="alertLog">
+    <div class="log-empty" id="logEmpty"><div style="font-size:28px;margin-bottom:8px">🔔</div>No alerts yet</div>
+  </div>
+</div>
+
+<main class="main">
+
+  <!-- ══ HOME ══ -->
+  <div class="page active" id="page-home">
+    <div class="topbar">
+      <div><div class="page-title">Dashboard</div><div class="page-subtitle">Live Overview · Group 14</div></div>
+      <div class="topbar-right">
+        <span class="badge badge-offline" id="liveBadge">● Connecting</span>
+        <button class="alert-bell-btn" onclick="toggleDD()">🔔<span class="bell-count" id="bellCount">0</span></button>
+        <button class="btn btn-ghost" onclick="exportData()">Export</button>
+      </div>
+    </div>
+    <div class="persistent-banner" id="banner">
+      <span class="banner-icon">⚠</span><span class="banner-text" id="bannerText"></span><span class="banner-dismiss" onclick="dismissBanner()">✕</span>
+    </div>
+    <div class="content">
+      <div class="welcome-banner">
+        <div class="welcome-text">
+          <h2>Welcome back, Researcher</h2>
+          <p>TerraMetric · Indoor Plant Monitoring · Group 14</p>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">🌡 Temperature</div>
+          <div class="stat-value skel" id="home-temp" style="height:36px;width:80%;margin-bottom:8px;"></div>
+          <div class="stat-sub skel"   id="home-temp-sub" style="height:10px;width:55%;"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">💧 Humidity</div>
+          <div class="stat-value skel" id="home-hum" style="height:36px;width:70%;margin-bottom:8px;"></div>
+          <div class="stat-sub skel"   id="home-hum-sub" style="height:10px;width:55%;"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">☀ Light Level</div>
+          <div class="stat-value skel" id="home-light" style="height:36px;width:75%;margin-bottom:8px;"></div>
+          <div class="stat-sub skel"   id="home-light-sub" style="height:10px;width:55%;"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">📊 ESI Score</div>
+          <div class="stat-value skel" id="home-esi" style="height:36px;width:60%;margin-bottom:8px;"></div>
+          <div class="stat-sub skel"   id="home-esi-sub" style="height:10px;width:65%;"></div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Live Telemetry</span>
+            <select class="select-pill" id="homeChartSensor" onchange="updateHomeChart()">
+              <option value="temp">Temperature</option>
+              <option value="hum">Humidity</option>
+              <option value="light">Light</option>
+            </select>
+          </div>
+          <div id="homeChartWrap"><div class="skel" style="height:180px;border-radius:8px;"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">ESI Gauge</span></div>
+          <div class="esi-wrap">
+            <div class="esi-ring">
+              <svg class="esi-svg" viewBox="0 0 120 120">
+                <circle class="esi-track" cx="60" cy="60" r="50"/>
+                <circle class="esi-fill" id="esiArc" cx="60" cy="60" r="50" stroke-dasharray="314" stroke-dashoffset="314"/>
+              </svg>
+              <div class="esi-num"><div class="esi-score" id="esiNum">--</div><div class="esi-label">ESI</div></div>
+            </div>
+            <div class="esi-status" id="esiStatus" style="color:var(--bark-mid)">Awaiting data…</div>
+          </div>
+          <div style="margin-top:16px;">
+            <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">Recent Alerts</div>
+            <div id="alertFeed"><div style="font-size:10px;color:var(--bark-mid);padding:8px 0;">No alerts yet</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="quick-nav-grid">
+        <div class="qnav" onclick="goTo('viewdata',document.querySelectorAll('.nav-item')[1])"><div class="qnav-icon">📈</div><div class="qnav-label">View Data</div></div>
+        <div class="qnav" onclick="goTo('control',document.querySelectorAll('.nav-item')[2])"><div class="qnav-icon">🎛</div><div class="qnav-label">Control Variables</div></div>
+        <div class="qnav" onclick="goTo('samples',document.querySelectorAll('.nav-item')[3])"><div class="qnav-icon">🪴</div><div class="qnav-label">Manage Samples</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ VIEW DATA ══ -->
+  <div class="page" id="page-viewdata">
+    <div class="topbar">
+      <div><div class="page-title">View Data</div><div class="page-subtitle">Graphs · Gallery · Anomalies</div></div>
+      <div class="topbar-right">
+        <button class="alert-bell-btn" onclick="toggleDD()">🔔<span class="bell-count">0</span></button>
+        <button class="btn btn-ghost" onclick="exportData()">Export CSV</button>
+        <button class="btn btn-primary" onclick="fetchAll()">↻ Refresh</button>
+      </div>
+    </div>
+    <div class="persistent-banner"><span class="banner-icon">⚠</span><span class="banner-text"></span><span class="banner-dismiss" onclick="dismissBanner()">✕</span></div>
+    <div class="content">
+      <div class="tab-bar">
+        <div class="tab active" onclick="switchTab('graphs',this)">📈 Graphs</div>
+        <div class="tab" onclick="switchTab('gallery',this)">🖼 Gallery</div>
+        <div class="tab" onclick="switchTab('anomalies',this)">⚠ Anomalies</div>
+      </div>
+
+      <!-- GRAPHS TAB -->
+      <div class="tabpanel active" id="tab-graphs">
+        <div class="filter-row" style="flex-wrap:wrap;gap:8px;align-items:center;">
+          <select class="select-pill" id="graphSample" title="Primary sample shown on the charts. Empty = all samples combined." onchange="onGraphSampleFilterChange()"></select>
+          <select class="select-pill" id="graphRange" onchange="onGraphRangeChange()">
+            <option value="1">Last 1 hour</option>
+            <option value="6">Last 6 hours</option>
+            <option value="24" selected>Last 24 hours</option>
+            <option value="72">Last 72 hours</option>
+            <option value="168">Last 7 days</option>
+          </select>
+          <select class="select-pill" id="graphBin" title="Downsample readings into fixed time buckets (mean per bucket). Auto picks a sensible bucket for the range." onchange="fetchTelemetry()">
+            <option value="auto" selected>Bin: auto</option>
+            <option value="0">Raw (no binning)</option>
+            <option value="60">1 min</option>
+            <option value="300">5 min</option>
+            <option value="600">10 min</option>
+            <option value="1800">30 min</option>
+            <option value="3600">1 hour</option>
+          </select>
+          <label class="graph-session-only-label" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--bark-mid);cursor:pointer;white-space:nowrap;" title="Only when a recording is active for the selected sample. Hides backfill and earlier sessions.">
+            <input type="checkbox" id="graphSessionOnly" disabled onchange="onGraphSessionOnlyChange()">
+            This recording only
+          </label>
+          <button class="btn btn-ghost" type="button" onclick="resetAllZoom()" title="Reset zoom on every chart">Reset zoom</button>
+          <span style="flex:1"></span>
+          <span style="font-size:11px;color:var(--bark-mid);" id="graphRowMeta"></span>
+        </div>
+        <p id="graphActiveSessionHint" style="display:none;margin:8px 0 0;font-size:11px;color:var(--olive);max-width:52rem;line-height:1.55;"></p>
+        <p id="graphFilterHint" style="display:none;margin:10px 0 0;font-size:11px;color:var(--bark-mid);max-width:52rem;line-height:1.55;"></p>
+      <div class="graphs-grid">
+          <div class="graph-card">
+            <div class="card-header"><span class="card-title">🌡 Temperature (°C)</span><span id="tempLive" style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;"></span></div>
+            <div id="chartTempWrap"><div class="skel" style="height:150px;border-radius:8px;"></div></div>
+            <div class="graph-stats" id="stats_temp"></div>
+          </div>
+          <div class="graph-card">
+            <div class="card-header"><span class="card-title">💧 Humidity (%RH)</span><span id="humLive" style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;"></span></div>
+            <div id="chartHumWrap"><div class="skel" style="height:150px;border-radius:8px;"></div></div>
+            <div class="graph-stats" id="stats_hum"></div>
+          </div>
+          <div class="graph-card">
+            <div class="card-header"><span class="card-title">☀ Light (lux)</span><span id="lightLive" style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;"></span></div>
+            <div id="chartLightWrap"><div class="skel" style="height:150px;border-radius:8px;"></div></div>
+            <div class="graph-stats" id="stats_light"></div>
+          </div>
+          <div class="graph-card">
+            <div class="card-header"><span class="card-title">📏 Plant Height (cm)</span><span id="heightLive" style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;"></span></div>
+            <div id="chartHeightWrap"><div class="skel" style="height:150px;border-radius:8px;"></div></div>
+            <div class="graph-stats" id="stats_height"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GALLERY TAB -->
+      <div class="tabpanel" id="tab-gallery">
+        <div class="gallery-plant-bar">
+          <div class="gallery-plant-label">Viewing Plant:</div>
+          <div id="galleryPlantTabs" style="display:flex;gap:8px;flex-wrap:wrap;flex:1;"></div>
+          <div style="font-size:10px;color:var(--bark-mid);">📷 Auto-captured images</div>
+        </div>
+        <div id="galleryPlantHeader"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.08em;">📸 Growth Timeline</div>
+          <div style="font-size:10px;color:var(--bark-mid);">Most recent first</div>
+        </div>
+        <div id="galleryTimeline"></div>
+      </div>
+
+      <!-- ANOMALIES TAB -->
+      <div class="tabpanel" id="tab-anomalies">
+        <div class="anom-page">
+
+        <section class="anom-sim-toolbar" aria-label="Simulation parameters">
+          <div class="anom-sim-toolbar__group">
+            <span class="anom-kicker">Synthetic run</span>
+            <label class="anom-sr-only" for="simScenario">Scenario</label>
+            <select class="select-pill anom-sim-toolbar__select" id="simScenario">
+              <option value="stable">Stable</option>
+              <option value="drift" selected>Drift</option>
+              <option value="noise">Noise</option>
+              <option value="dropout">Dropout</option>
+              <option value="spike">Spike</option>
+              <option value="level_shift">Level Shift</option>
+              <option value="correlation">Correlation Break</option>
+              <option value="all">All Combined</option>
+            </select>
+          </div>
+          <div class="anom-sim-toolbar__group anom-sim-toolbar__group--duration">
+            <span class="anom-kicker">Duration</span>
+            <div class="anom-duration-field">
+              <label class="anom-sr-only" for="simDuration">Minutes</label>
+              <input type="number" class="anom-duration-input" id="simDuration" value="60" min="5" max="1440">
+              <span class="anom-duration-suffix">min</span>
+            </div>
+          </div>
+          <div class="anom-sim-toolbar__actions">
+            <button type="button" class="btn btn-primary" id="simRunBtn" onclick="runAnomalySimulation()">Run simulation</button>
+            <button type="button" class="btn btn-ghost" onclick="clearAnomalySimulation()">Clear results</button>
+          </div>
+        </section>
+
+        <aside id="anomScenarioInfo" class="anom-scenario-panel" aria-labelledby="anom-scenario-heading">
+          <div class="anom-scenario-panel__top">
+            <div class="anom-scenario-panel__label">
+              <span class="anom-scenario-panel__eyebrow">Active protocol</span>
+              <h3 id="anom-scenario-heading" class="anom-scenario-panel__title">Scenario specification</h3>
+            </div>
+            <code id="anomScenarioTag" class="anom-scenario-panel__code"></code>
+          </div>
+          <p id="anomScenarioDesc" class="anom-scenario-panel__desc"></p>
+        </aside>
+
+        <section class="anomaly-summary anom-summary-grid" aria-label="Detection counts">
+          <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon" aria-hidden="true">∑</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value" id="anomTotal">--</div><div class="anom-label">Total events</div></div></div>
+          <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon anom-stat-card__icon--danger" aria-hidden="true">↯</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value anom-stat-card__value--danger" id="anomSpike">--</div><div class="anom-label">Spikes</div></div></div>
+          <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon anom-stat-card__icon--sky" aria-hidden="true">↗</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value anom-stat-card__value--sky" id="anomDrift">--</div><div class="anom-label">Drift</div></div></div>
+          <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon anom-stat-card__icon--noise" aria-hidden="true">◇</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value anom-stat-card__value--noise" id="anomNoise">--</div><div class="anom-label">Noise</div></div></div>
+        </section>
+        <section class="anomaly-summary anom-summary-grid" aria-label="Detection counts continued">
+          <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon anom-stat-card__icon--alert" aria-hidden="true">⊘</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value anom-stat-card__value--alert" id="anomDropout">--</div><div class="anom-label">Dropouts</div></div></div>
+          <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon anom-stat-card__icon--corr" aria-hidden="true">∞</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value anom-stat-card__value--corr" id="anomCorrelation">--</div><div class="anom-label">Correlation</div></div></div>
+          <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon anom-stat-card__icon--shift" aria-hidden="true">⊔</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value anom-stat-card__value--shift" id="anomLevelShift">--</div><div class="anom-label">Level shift</div></div></div>
+          <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon anom-stat-card__icon--ewma" aria-hidden="true">ƒ</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value anom-stat-card__value--ewma" id="anomEwma">--</div><div class="anom-label">EWMA breach</div></div></div>
+        </section>
+
+        <section id="anomSevBar" class="anom-severity-card" aria-label="Severity distribution">
+          <div class="anom-severity-card__head">
+            <span class="anom-severity-card__title">Severity distribution</span>
+            <span id="anomSevCounts" class="anom-severity-card__counts"></span>
+          </div>
+          <div id="anomSevBarInner" class="anom-sev-stack" role="img" aria-hidden="true"></div>
+        </section>
+
+        <section class="graph-card anom-surface" id="anomChartCard">
+          <div class="card-header anom-card-head">
+            <span class="card-title">Per-sensor time series</span>
+            <div class="anom-card-head__tools">
+              <label class="anom-check-label">
+                <input type="checkbox" id="anomShowMarkers" checked onchange="renderAnomCharts()"> Event markers
+              </label>
+              <div id="anomSensorPills" class="anom-sensor-pills"></div>
+            </div>
+          </div>
+          <div id="anomChartWrap" class="anom-chart-host">
+            <div class="anom-placeholder">
+              <span class="anom-placeholder__glyph" aria-hidden="true">◇</span>
+              <p class="anom-placeholder__text">Configure a scenario and choose <strong>Run simulation</strong> to generate synthetic telemetry and detector output.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="graph-card anom-surface" id="anomScoreCard">
+          <div class="card-header anom-card-head"><span class="card-title">Weighted anomaly score</span></div>
+          <div id="anomFocusBar" class="anom-focus-bar">
+            <span class="anom-focus-label" id="anomFocusLabel"></span>
+            <button type="button" class="btn btn-ghost anom-btn-compact" onclick="clearAnomFocus()">Clear focus</button>
+          </div>
+          <div id="anomScoreWrap" class="anom-chart-host">
+            <div class="anom-placeholder anom-placeholder--compact">
+              <p class="anom-placeholder__text">Scores appear after a successful simulation run.</p>
+            </div>
+          </div>
+        </section>
+
+        <aside class="anom-readme" id="anomHelpPanel">
+          <div class="anom-readme__title">Interpretation notes</div>
+          <ul class="anom-readme__list">
+            <li><strong>Score timeline</strong> — severity-weighted activity per time step to show when alarms cluster, not only raw traces.</li>
+            <li><strong>Concurrent events</strong> — multiple detectors may flag the same timestamp under stress scenarios; use <strong>Group by time</strong> to collapse the log.</li>
+            <li><strong>Reviewed</strong> — local triage only (this browser); backend detection is unchanged.</li>
+          </ul>
+        </aside>
+
+        <section class="anom-log-section" aria-labelledby="anom-log-heading">
+          <div class="anom-log-toolbar">
+            <h2 id="anom-log-heading" class="anom-log-toolbar__title">Event log <span id="anomLogCount" class="anom-log-toolbar__meta"></span></h2>
+            <div class="anom-log-toolbar__actions">
+              <button type="button" class="btn btn-ghost anom-btn-compact" onclick="exportAnomalyCSV()">Export CSV</button>
+              <button type="button" class="btn btn-ghost anom-btn-compact" onclick="printAnomalyReport()">Print report</button>
+              <button type="button" class="btn btn-ghost anom-btn-compact" onclick="clearAnomAcknowledgements()">Clear reviewed</button>
+            </div>
+          </div>
+          <div class="anom-filter-row">
+            <input type="search" id="anomSearch" class="anom-search-input" placeholder="Filter by description, type, or sensor…" oninput="anomResetVisible(); renderAnomalyTable();">
+            <label class="anom-check-label anom-check-label--inline">
+              <input type="checkbox" id="anomGroupByTime" onchange="anomResetVisible(); renderAnomalyTable();"> Group by time
+            </label>
+            <label class="anom-check-label anom-check-label--inline">
+              <input type="checkbox" id="anomHideAck" onchange="renderAnomalyTable();"> Hide reviewed
+            </label>
+          </div>
+          <div class="anom-filter-row anom-filter-row--selects">
+            <select class="select-pill" id="anomFilterType" onchange="anomResetVisible(); renderAnomalyTable()">
+              <option value="">All types</option>
+              <option value="spike">Spike</option>
+              <option value="drift">Drift</option>
+              <option value="noise">Noise</option>
+              <option value="dropout">Dropout</option>
+              <option value="correlation">Correlation</option>
+              <option value="level_shift">Level shift</option>
+              <option value="ewma_breach">EWMA breach</option>
+              <option value="seasonal">Seasonal</option>
+            </select>
+            <select class="select-pill" id="anomFilterSev" onchange="anomResetVisible(); renderAnomalyTable()">
+              <option value="">All severities</option>
+              <option value="danger">Critical</option>
+              <option value="warning">Warning</option>
+              <option value="info">Info</option>
+            </select>
+            <select class="select-pill" id="anomFilterSensor" onchange="anomResetVisible(); renderAnomalyTable()">
+              <option value="">All sensors</option>
+              <option value="temperature">Temperature</option>
+              <option value="humidity">Humidity</option>
+              <option value="light">Light</option>
+              <option value="temperature+humidity">Temp + humidity</option>
+            </select>
+          </div>
+        </section>
+
+        <div class="anomaly-table anom-table-wrap">
+          <div class="tbl-head anom-tbl-head"><span></span><span>Timestamp</span><span>Type</span><span>Sensor</span><span>Description</span><span>Severity</span><span>Status</span></div>
+          <div id="anomalyBody">
+            <div class="anom-placeholder">
+              <span class="anom-placeholder__glyph" aria-hidden="true">◇</span>
+              <p class="anom-placeholder__text">No events loaded. Run a simulation or connect live telemetry to populate this register.</p>
+            </div>
+          </div>
+        </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══ CONTROL VARIABLES ══ -->
+  <div class="page" id="page-control">
+  <div class="topbar">
+    <div><div class="page-title">Control Variables</div><div class="page-subtitle">Thresholds · Sampling Intervals</div></div>
+    <div class="topbar-right">
+      <button class="alert-bell-btn" onclick="toggleDD()">🔔<span class="bell-count">0</span></button>
+    </div>
+  </div>
+  <div class="persistent-banner"><span class="banner-icon">⚠</span><span class="banner-text"></span><span class="banner-dismiss" onclick="dismissBanner()">✕</span></div>
+  <div class="content">
+    <div class="control-top">
+      <span class="group-label">Control Group:</span>
+      <select class="group-select" id="groupSelect" onchange="fetchControls()">
+        <option value="1">Group 1</option>
+        <option value="2">Group 2</option>
+      </select>
+      <span style="font-size:10px;color:var(--bark-mid);">
+        Live readings update automatically. Edit thresholds and intervals, then hit Save.
+      </span>
+    </div>
+    <div class="sensor-grid">
+      <div class="sensor-card">
+        <div class="sensor-header"><div class="sensor-icon-bg">🌡</div><div class="sensor-name">Temperature</div></div>
+        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="temp-min" value="20" min="-100" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="temp-max" value="30" min="0" max="100"><span class="unit">°C</span></div></div>
+        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-temp" value="28" placeholder="°C threshold" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-temp" value="30" placeholder="seconds"></div>
+      </div>
+      <div class="sensor-card">
+        <div class="sensor-header"><div class="sensor-icon-bg">💧</div><div class="sensor-name">Humidity</div></div>
+        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="humid-min" value="20" min="0" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="humid-max" value="30" min="0" max="100"><span class="unit">%</span></div></div>
+        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-hum" value="80" placeholder="% threshold" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-hum" value="30" placeholder="seconds"></div>
+      </div>
+      <div class="sensor-card">
+        <div class="sensor-header"><div class="sensor-icon-bg">☀</div><div class="sensor-name">Light</div></div>
+        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="light-min" value="20" min="0" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="light-max" value="30" min="0" max="100"><span class="unit">lux</span></div></div>
+        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-light" value="200" placeholder="lux threshold" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-light" value="15" placeholder="seconds"></div>
+      </div>
+      <div class="sensor-card">
+        <div class="sensor-header"><div class="sensor-icon-bg">👁</div><div class="sensor-name">Motion (PIR)</div></div>
+        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="motion-min" value="20" min="0" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="motion-max" value="30" min="0" max="100"><span class="unit"></span></div></div>
+        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-motion" value="5" placeholder="events/min"></div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-motion" value="10" placeholder="seconds"></div>
+      </div>
+      <div class="sensor-card">
+        <div class="sensor-header"><div class="sensor-icon-bg">📏</div><div class="sensor-name">Height (Ultrasonic)</div></div>
+        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="height-min" value="20" min="0" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="height-max" value="30" min="0" max="100"><span class="unit">cm</span></div></div>
+        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-height" value="35" placeholder="cm max" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-height" value="120" placeholder="seconds"></div>
+      </div>
+      <div class="sensor-card">
+        <div class="sensor-header"><div class="sensor-icon-bg">📷</div><div class="sensor-name">Camera</div></div>
+        <div class="field-row"><span class="field-label">Capture on Motion</span><label class="switch"><input type="checkbox" id="cam-on-motion"><span class="slider"></span></label></div>
+        <div class="field-row"><span class="field-label">Capture on Warning</span><label class="switch"><input type="checkbox" id="cam-on-alert"><span class="slider"></span></label></div>
+        <div class="field-row"><span class="field-label">Read Interval</span>
+          <select class="field-input" id="int-cam">
+            <option value="1h">1 hour</option>
+            <option value="12h">12 hours</option>
+            <option value="24h">24 hours</option>
+            <option value="1w">1 week</option>
+            <option value="custom">Custom…</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="save-row">
+      <button class="btn btn-primary" type="button" onclick="resetControls()">Reset to Defaults</button>
+      <div style="margin-left:auto;"></div>
+      <button class="btn btn-ghost" type="button" onclick="cancelChanges()">Cancel</button>
+      <button class="btn btn-primary" type="button" onclick="saveControls()">💾 Save Changes</button>
+    </div>
+  </div>
+</div>
+
+  <!-- ══ MANAGE SAMPLES ══ -->
+  <div class="page" id="page-samples">
+    <div class="topbar">
+      <div><div class="page-title">Manage Samples</div><div class="page-subtitle">Group Samples · One Tray Per Plant</div></div>
+      <div class="topbar-right">
+        <button class="alert-bell-btn" onclick="toggleDD()">🔔<span class="bell-count">0</span></button>
+        <button class="btn btn-ghost" onclick="exportSamples()">Export List</button>
+        <button class="btn btn-primary" onclick="addTray()">+ Add Sample</button>
+      </div>
+    </div>
+    <div class="persistent-banner"><span class="banner-icon">⚠</span><span class="banner-text"></span><span class="banner-dismiss" onclick="dismissBanner()">✕</span></div>
+    <div class="content">
+      <div class="connection-note">
+        <strong>ℹ One tray, one plant.</strong> Each sample registered here maps to a physical tray in your chamber.
+        The QR code links this record to camera captures — so photos in the Gallery are automatically matched to the correct plant.
+      </div>
+      <div class="samples-layout">
+        <div class="tray-list-card">
+          <div class="tray-list-head">
+            <span class="tray-list-title">Group Samples</span>
+            <div class="tray-btns">
+              <div class="icon-btn" onclick="addTray()" title="Add sample">+</div>
+              <div class="icon-btn" onclick="removeTray()" title="Remove selected (local only)">−</div>
+              <div class="icon-btn" onclick="clearAllSamples()" title="DELETE ALL samples + telemetry on the server" style="color:#b8392b;font-size:14px;">⌫</div>
+            </div>
+          </div>
+          <div class="tray-items" id="trayItems"></div>
+        </div>
+        <div class="sample-detail">
+          <div class="detail-title" id="detailTitle">Sample Details — Sample 1</div>
+          <div class="detail-field"><label>Plant Name / Species</label><input class="detail-input" id="d-name" type="text" placeholder="e.g. Arabidopsis thaliana"></div>
+          <div class="detail-field"><label>Location / Position in Chamber</label><input class="detail-input" id="d-loc" type="text" placeholder="e.g. Chamber A, Row 1"></div>
+          <div class="detail-field"><label>Germination Date</label><input class="detail-input" id="d-germ" type="date"></div>
+          <div class="detail-field"><label>Treatment / Group Notes</label><textarea class="detail-input" id="d-notes" placeholder="Control group, treatment conditions, observations…"></textarea></div>
+          <div class="detail-field"><label>QR Code / Scan ID</label><input class="detail-input" id="d-qr" type="text" placeholder="Scan QR or enter ID manually…"></div>
+          <div class="detail-title" style="margin-top:14px;font-size:13px;">Sensor telemetry</div>
+          <div class="connection-note" style="margin-bottom:10px;">
+            Only <strong>one sample</strong> can record chamber data at a time. Register your Arduino below (match the Bluetooth name from your sketch, e.g. <code>Group14</code>), choose it, then start — incoming readings are tagged until you stop. Save the sample first so it has a server ID.
+          </div>
+          <div class="detail-field"><label>Register new device</label></div>
+          <div style="display:grid;gap:8px;margin-bottom:10px;">
+            <input class="detail-input" id="d-dev-bt" type="text" placeholder="Bluetooth name (e.g. Group14 — matches AT+NAME in sketch)" autocomplete="off">
+            <input class="detail-input" id="d-dev-label" type="text" placeholder="Display label (optional, e.g. Chamber Arduino)" autocomplete="off">
+            <input class="detail-input" id="d-dev-mac" type="text" placeholder="MAC address (optional)" autocomplete="off">
+            <button type="button" class="btn btn-ghost" id="btnRegisterDevice" onclick="registerSampleDevice()">Register device</button>
+          </div>
+          <div class="detail-field"><label>Arduino / device</label><select class="detail-input" id="d-device"><option value="">— None (optional) —</option></select></div>
+
+          <div class="detail-field" style="margin-top:6px;"><label>Scenario (used by the dummy data engine)</label>
+            <select class="detail-input" id="d-scenario">
+              <option value="stable" selected>Stable — healthy chamber</option>
+              <option value="heat_spike">Heat spike — periodic +6&deg;C bursts</option>
+              <option value="drought">Drought — humidity decays 60&rarr;25%</option>
+              <option value="cold_night">Cold night — heater failure at night (-5&deg;C)</option>
+              <option value="sensor_drift">Sensor drift — slow +0.05&deg;C/min on temp</option>
+            </select>
+          </div>
+          <p style="font-size:10px;color:var(--bark-mid);margin:6px 0 0;line-height:1.45;max-width:36rem;">View Data graphs show <strong>every</strong> reading for the sample and time range you choose there (older backfill, past sessions, and the current run mix together). Use <strong>Clear telemetry</strong> to reset, or on Graphs check <strong>This recording only</strong> while a session is active for that sample.</p>
+          <div class="detail-field" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--bark-mid);cursor:pointer;">
+              <input type="checkbox" id="d-dummy-stream" checked>
+              Stream dummy data while recording (no Arduino needed)
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--bark-mid);">
+              Interval&nbsp;<input class="detail-input" id="d-stream-interval" type="number" min="1" max="300" value="5" style="width:70px;padding:4px 6px;"> s
+            </label>
+          </div>
+
+          <div class="detail-field" style="margin-bottom:8px;"><span id="recordingStatus" style="font-size:11px;color:var(--bark-mid);">Recording: not active</span></div>
+          <div style="display:flex;gap:10px;margin-top:4px;">
+            <button type="button" class="btn btn-primary" style="flex:1" id="btnStartRecording" onclick="startSampleRecording()" disabled title="Save the sample first to enable recording">Start recording</button>
+            <button type="button" class="btn btn-ghost" style="flex:1" id="btnStopRecording" onclick="stopSampleRecording()" disabled>Stop recording</button>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:8px;">
+            <button type="button" class="btn btn-ghost" style="flex:1" id="btnBackfillDummy" onclick="backfillDummyHistory()" disabled title="Insert hours of synthetic past readings tagged to this sample.">Backfill dummy history…</button>
+            <button type="button" class="btn btn-ghost" style="flex:1" id="btnClearTelemetry" onclick="clearSampleTelemetry()" disabled title="Delete this sample's telemetry rows. The sample itself is kept.">Clear telemetry</button>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:10px;">
+            <button class="btn btn-ghost" style="flex:1" onclick="clearDetail()">Clear form</button>
+            <button class="btn btn-primary" style="flex:1" onclick="saveSample()">Save Sample</button>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:10px;">
+            <button type="button" class="btn btn-ghost" style="flex:1;color:#b8392b;border-color:rgba(184,57,43,.45);" id="btnDeleteSample" onclick="deleteSampleFromServer()" disabled title="Permanently delete this sample, its telemetry and recording sessions">Delete sample…</button>
+          </div>
+          <div class="tips-box">
+            <h4>💡 How this connects</h4>
+            <p>Each sample = one physical tray with one plant. The QR code links this record to camera captures so
+               photos in the Gallery are automatically grouped by plant, letting you track growth over time.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ══════════════════════════════════════
+     JAVASCRIPT — load in this order
+══════════════════════════════════════ -->
+<script src="js/config.js"></script>     <!-- ← Edit this to connect your system  -->
+<script src="js/alerts.js"></script>     <!-- Toasts, bell, warning banner         -->
+<script src="js/charts.js"></script>     <!-- Sensor graph drawing                 -->
+<script src="js/anomalies.js"></script>  <!-- Anomaly detection & simulation       -->
+<script src="js/home.js"></script>       <!-- Stat cards, ESI gauge                -->
+<script src="js/samples.js"></script>    <!-- Manage Samples + Gallery             -->
+<script src="js/api.js"></script>        <!-- Fetches data from the server         -->
+<script src="js/app.js"></script>        <!-- Navigation + boot sequence           -->
+
+</body>
+</html>
