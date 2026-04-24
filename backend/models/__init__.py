@@ -4,7 +4,9 @@ Order: plants/devices first, then recording_sessions, then telemetry (FKs to ses
 """
 
 from models.plant import Plant  # noqa: F401
+from models.plant_control import PlantControl  # noqa: F401
 from models.device import Device  # noqa: F401
 from models.session import RecordingSession  # noqa: F401
 from models.reading import Telemetry  # noqa: F401
 from models.audit_log import AuditLog  # noqa: F401
+from models.alert import Alert  # noqa: F401

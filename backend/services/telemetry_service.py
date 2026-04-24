@@ -41,12 +41,19 @@ def store_telemetry_row(
     timestamp: Optional[datetime] = None,
     device_id: Optional[int] = None,
     bt_name: Optional[str] = None,
+    plant_id: Optional[int] = None,
 ) -> Telemetry:
-    """Attach to the single open recording session if one exists; optionally touch Device last_seen."""
+    """Attach to the single open recording session if one exists; optionally touch Device last_seen.
+
+    If there is *no* open session, an optional ``plant_id`` (e.g. from ingest) still tags the row
+    and enables per-plant threshold checks against that sample's saved control profile.
+    """
     now = datetime.utcnow()
     open_sess = get_open_session_singleton(db)
     sid = open_sess.id if open_sess else None
     pid = open_sess.plant_id if open_sess else None
+    if pid is None and plant_id is not None:
+        pid = plant_id
 
     if device_id is not None:
         dev = db.query(Device).filter(Device.id == device_id).first()
@@ -69,6 +76,10 @@ def store_telemetry_row(
         plant_height=plant_height,
     )
     db.add(row)
+    if pid is not None:
+        from services.threshold_service import evaluate_telemetry_row
+
+        evaluate_telemetry_row(db, plant_id=pid, session_id=sid, row=row)
     db.commit()
     db.refresh(row)
     return row

@@ -58,15 +58,16 @@ function emitSamplesChanged(reason, plantId) {
 // ── Fetch all data at once ───────────────────
 
 async function fetchAll() {
+  // Samples must load before control profile: #groupSelect needs a plant_id, otherwise
+  // fetchControls bails and the form stays on static HTML defaults.
   await Promise.allSettled([
     fetchLatest(),
     fetchTelemetry(),
     fetchAlerts(),
     fetchAnomalies(),
-    fetchSamples(),
-    fetchControls(),
     fetchGallery(),
   ]);
+  await fetchSamples();
 }
 
 // ── Latest sensor readings ───────────────────
@@ -277,13 +278,30 @@ function generateFallbackTelemetry(hours = 24) {
 // ── Active alerts ────────────────────────────
 // Returns: [{ id, severity, title, message, timestamp, resolved }, …]
 
+const _seenAlertIds = new Set();
+const _SEEN_MAX = 400;
+
 async function fetchAlerts() {
   try {
     const data = await apiFetch(CONFIG.ENDPOINTS.alerts);
     const alerts = Array.isArray(data) ? data : data.alerts || [];
+    // Toasts for newly seen ids only; then bind home + bell from server (single source of truth).
     alerts.forEach(a => {
+      if (a.id != null) {
+        if (_seenAlertIds.has(a.id)) return;
+        if (_seenAlertIds.size >= _SEEN_MAX) {
+          _seenAlertIds.clear();
+        }
+        _seenAlertIds.add(a.id);
+      }
       fireAlert(a.severity, a.title, a.message, a.severity === 'danger' ? 0 : 8000);
     });
+    if (typeof renderHomeAlertFeedFromServer === 'function') {
+      renderHomeAlertFeedFromServer(alerts);
+    }
+    if (typeof syncServerAlertsToDropdown === 'function') {
+      syncServerAlertsToDropdown(alerts);
+    }
   } catch { /* alerts endpoint not ready yet */ }
 }
 
@@ -309,6 +327,12 @@ async function fetchSamples() {
     }
   } catch { /* use local trays */ }
   populateGraphSampleSelect(list);
+  if (typeof buildControlPlantSelectFromList === 'function') {
+    buildControlPlantSelectFromList(list);
+  }
+  if (typeof fetchControls === 'function') {
+    await fetchControls();
+  }
 }
 
 // Re-fetch the sample list (and therefore re-render every consumer) whenever

@@ -124,7 +124,8 @@
             <div class="esi-status" id="esiStatus" style="color:var(--bark-mid)">Awaiting data…</div>
           </div>
           <div style="margin-top:16px;">
-            <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">Recent Alerts</div>
+            <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;">Recent Alerts</div>
+            <div style="font-size:9px;color:var(--bark-mid);line-height:1.35;margin-bottom:8px;max-width:220px;">Persisted server alerts (text is fixed at breach time, not a live re-check of your current Control form).</div>
             <div id="alertFeed"><div style="font-size:10px;color:var(--bark-mid);padding:8px 0;">No alerts yet</div></div>
           </div>
         </div>
@@ -403,20 +404,21 @@
   <div class="persistent-banner"><span class="banner-icon">⚠</span><span class="banner-text"></span><span class="banner-dismiss" onclick="dismissBanner()">✕</span></div>
   <div class="content">
     <div class="control-top">
-      <span class="group-label">Control Group:</span>
+      <span class="group-label">Sample:</span>
       <select class="group-select" id="groupSelect" onchange="fetchControls()">
-        <option value="1">Group 1</option>
-        <option value="2">Group 2</option>
+        <option value="">Loading samples…</option>
       </select>
       <span style="font-size:10px;color:var(--bark-mid);">
         Live readings update automatically. Edit thresholds and intervals, then hit Save.
+        Server threshold alerts use the sample that <strong>receives the reading</strong> (recording session or <code>TM_BRIDGE_PLANT_ID</code>); if that id differs from the sample selected here, alert bands will not match this form.
       </span>
     </div>
     <div class="sensor-grid">
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">🌡</div><div class="sensor-name">Temperature</div></div>
         <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="temp-min" value="20" min="-100" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="temp-max" value="30" min="0" max="100"><span class="unit">°C</span></div></div>
-        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-temp" value="28" placeholder="°C threshold" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div>
+        <div class="field-row"><span class="field-label">Tolerance (Home highlight)</span><div class="range-inputs"><input class="field-input" type="number" step="0.1" id="warn-temp-lo" value="" min="-100" max="100" placeholder="low °C" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"><span class="range-sep">to</span><input class="field-input" type="number" step="0.1" id="warn-temp" value="28" min="-100" max="100" placeholder="high °C" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div></div>
+        <div class="field-row" style="font-size:10px;color:var(--bark-mid);line-height:1.4;"><span>Automated server alerts use <strong>Desired</strong> min–max. Tolerance is an optional soft band for the Home / Control readouts (below low / above high). Leave “low” empty to only flag when too hot.</span></div>
         <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-temp" value="30" placeholder="seconds"></div>
       </div>
       <div class="sensor-card">

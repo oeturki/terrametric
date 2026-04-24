@@ -5,8 +5,34 @@
 
 // ── Update stat cards ────────────────────────
 
+function _tempSubLine(d) {
+  const t = d.temperature;
+  if (t == null || isNaN(t)) return '—';
+  const tmin = parseFloat(document.getElementById('temp-min')?.value);
+  const tmax = parseFloat(document.getElementById('temp-max')?.value);
+  const wlo = parseFloat(document.getElementById('warn-temp-lo')?.value);
+  const wHi = parseFloat(document.getElementById('warn-temp')?.value);
+  if (!isNaN(tmin) && t < tmin) return '⚠ Below desired min';
+  if (!isNaN(tmax) && t > tmax) return '⚠ Above desired max';
+  if (!isNaN(wlo) && t < wlo) return '⚠ Below tolerance (soft low)';
+  if (!isNaN(wHi) && t > wHi) return '⚠ Above tolerance (soft high)';
+  return '✓ In range';
+}
+
+function _tempVisualWarn(t) {
+  if (t == null || isNaN(t)) return false;
+  const tmin = parseFloat(document.getElementById('temp-min')?.value);
+  const tmax = parseFloat(document.getElementById('temp-max')?.value);
+  const wlo = parseFloat(document.getElementById('warn-temp-lo')?.value);
+  const wHi = parseFloat(document.getElementById('warn-temp')?.value);
+  if (!isNaN(tmin) && t < tmin) return true;
+  if (!isNaN(tmax) && t > tmax) return true;
+  if (!isNaN(wlo) && t < wlo) return true;
+  if (!isNaN(wHi) && t > wHi) return true;
+  return false;
+}
+
 function updateHomeStats(d) {
-  const warnTemp  = parseFloat(document.getElementById('warn-temp')?.value)  || 28;
   const warnHum   = parseFloat(document.getElementById('warn-hum')?.value)   || 80;
   const warnLight = parseFloat(document.getElementById('warn-light')?.value) || 200;
 
@@ -24,7 +50,7 @@ function updateHomeStats(d) {
   setText('home-hum',   d.humidity?.toFixed(1)    + '%');
   setText('home-light', Math.round(d.light)        + ' lux');
 
-  setText('home-temp-sub',  d.temperature > warnTemp  ? '⚠ Above threshold' : '✓ Normal range');
+  setText('home-temp-sub',  _tempSubLine(d));
   setText('home-hum-sub',   d.humidity    > warnHum   ? '⚠ Above threshold' : '✓ Normal range');
   setText('home-light-sub', d.light       < warnLight ? '⚠ Low light'       : '✓ Adequate');
 
@@ -33,7 +59,7 @@ function updateHomeStats(d) {
   setText('home-esi-sub', esi >= 75 ? '✓ Stable environment' : esi >= 50 ? '⚠ Moderate stress' : '🚨 High stress');
   updateESIGauge(esi);
 
-  setLiveBadge('tempLive',   d.temperature?.toFixed(1) + '°C',   d.temperature > warnTemp);
+  setLiveBadge('tempLive',   d.temperature?.toFixed(1) + '°C',   _tempVisualWarn(d.temperature));
   setLiveBadge('humLive',    d.humidity?.toFixed(1)    + '%',     d.humidity    > warnHum);
   setLiveBadge('lightLive',  Math.round(d.light)        + ' lux', d.light       < warnLight);
   setLiveBadge('heightLive', d.height?.toFixed(1)       + ' cm',  false);
@@ -71,12 +97,11 @@ function updateESIGauge(esi) {
 
 function updateControlLiveVals(d) {
   if (!d) return;
-  const wt = parseFloat(document.getElementById('warn-temp')?.value)   || 28;
   const wh = parseFloat(document.getElementById('warn-hum')?.value)    || 80;
   const wl = parseFloat(document.getElementById('warn-light')?.value)  || 200;
   const wH = parseFloat(document.getElementById('warn-height')?.value) || 35;
 
-  setLiveField('ctrl-temp',   d.temperature?.toFixed(1) + ' °C',  d.temperature > wt);
+  setLiveField('ctrl-temp',   d.temperature?.toFixed(1) + ' °C',  _tempVisualWarn(d.temperature));
   setLiveField('ctrl-hum',    d.humidity?.toFixed(1)    + ' %',   d.humidity    > wh);
   setLiveField('ctrl-light',  Math.round(d.light)       + ' lux', d.light       < wl);
   setLiveField('ctrl-height', d.height?.toFixed(1)      + ' cm',  d.height      > wH);
@@ -95,8 +120,10 @@ function setLiveField(id, text, warn) {
 
 function resetDefaults() {
   const d = CONFIG.DEFAULTS;
+  const wlo = document.getElementById('warn-temp-lo');
+  if (wlo) wlo.value = d.temp_warn_lo != null && d.temp_warn_lo !== '' ? d.temp_warn_lo : '';
   document.getElementById('warn-temp').value   = d.temp_warn;
-  document.getElementById('int-temp').value    = d.temp_interval;
+  document.getElementById('int-temp').value    = d.temp_int;
   document.getElementById('warn-hum').value    = d.hum_warn;
   document.getElementById('int-hum').value     = d.hum_interval;
   document.getElementById('warn-light').value  = d.light_warn;

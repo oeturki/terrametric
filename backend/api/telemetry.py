@@ -107,6 +107,7 @@ def ingest_telemetry(body: TelemetryIngest, db: Session = Depends(get_db)):
         timestamp=body.timestamp,
         device_id=body.device_id,
         bt_name=body.bt_name,
+        plant_id=body.plant_id,
     )
     return TelemetryIngestResult(
         stored=True,

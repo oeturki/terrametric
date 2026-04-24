@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 
 from models.audit_log import AuditLog
 from models.plant import Plant
+from models.plant_control import PlantControl
 from schemas.plant import PlantCreate, PlantUpdate
+from services.default_control_profile import default_control_json
 
 
 def list_plants(db: Session) -> List[Plant]:
@@ -41,6 +43,8 @@ def create_plant(db: Session, data: PlantCreate, user_id: Optional[int] = None) 
         created_by=user_id,
     )
     db.add(p)
+    db.flush()
+    db.add(PlantControl(plant_id=p.id, profile_json=default_control_json()))
     db.commit()
     db.refresh(p)
     db.add(
@@ -82,12 +86,15 @@ def update_plant(db: Session, plant_id: int, data: PlantUpdate, user_id: Optiona
 
 
 def delete_plant(db: Session, plant_id: int, user_id: Optional[int] = None) -> bool:
+    from models.alert import Alert
     from models.reading import Telemetry
     from models.session import RecordingSession
 
     p = get_plant(db, plant_id)
     if not p:
         return False
+    db.query(Alert).filter(Alert.plant_id == plant_id).delete(synchronize_session=False)
+    db.query(PlantControl).filter(PlantControl.plant_id == plant_id).delete(synchronize_session=False)
     sess_ids = [r.id for r in db.query(RecordingSession).filter(RecordingSession.plant_id == plant_id).all()]
     # Telemetry can be linked via plant_id directly OR via session_id (older rows). Cover both.
     db.query(Telemetry).filter(Telemetry.plant_id == plant_id).delete(synchronize_session=False)

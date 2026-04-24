@@ -63,3 +63,15 @@ def run_sqlite_migrations(engine) -> None:
                             "dummy_stream BOOLEAN NOT NULL DEFAULT 0")
         _add_col_if_missing(conn, "recording_sessions", "stream_interval_sec",
                             "stream_interval_sec INTEGER")
+
+        # One-time: ensure every existing plant has a control profile (after plant_control table exists)
+        if "plant_control" in [r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()]:
+            from services.default_control_profile import default_control_json
+
+            dflt = default_control_json()
+            sub = "SELECT p.id FROM plants p LEFT JOIN plant_control pc ON pc.plant_id = p.id WHERE pc.plant_id IS NULL"
+            for (pid,) in conn.execute(text(sub)).fetchall():
+                conn.execute(
+                    text("INSERT INTO plant_control (plant_id, profile_json) VALUES (:id, :j)"),
+                    {"id": pid, "j": dflt},
+                )

@@ -16,6 +16,9 @@ function _afterPageShow(page) {
     if (typeof refreshActiveRecording === 'function') refreshActiveRecording();
   }
   if (page === 'viewdata') buildGalleryTabs();
+  if (page === 'control' && typeof fetchControls === 'function') {
+    fetchControls();
+  }
 }
 
 function goTo(page, navEl) {

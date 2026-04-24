@@ -549,3 +549,10 @@ function initSamplesRecordingUI() {
   refreshActiveRecording();
   setInterval(refreshActiveRecording, 10000);
 }
+
+window.addEventListener("samples:changed", function () {
+  if (typeof buildControlPlantSelectFromList === "function") {
+    buildControlPlantSelectFromList(trays);
+  }
+  // Server sync + control reload: see api.js fetchSamples (also on samples:changed) which awaits fetchControls.
+});
