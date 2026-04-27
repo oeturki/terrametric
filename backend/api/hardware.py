@@ -42,6 +42,8 @@ def _require_pi_config() -> str:
 class VentilationBody(BaseModel):
     on: bool | None = None
     angle: float | None = None
+    # Forwarded to Pi: True = sweep motion on "ventilation" click; False = hold 90° only
+    spin: bool = True
 
 
 @router.post("/capture")

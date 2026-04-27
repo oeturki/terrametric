@@ -136,7 +136,7 @@
 
       <div class="quick-nav-grid">
         <div class="qnav" role="button" tabindex="0" onclick="homeHardwareCapture(event)"><div class="qnav-icon">📷</div><div class="qnav-label">Take Picture</div></div>
-        <div class="qnav" role="button" tabindex="0" onclick="homeHardwareVentilation(event)"><div class="qnav-icon">🌀</div><div class="qnav-label">Activate Ventilation</div></div>
+        <div class="qnav" id="ventilationNavBtn" role="button" tabindex="0" data-vent-active="0" aria-pressed="false" onclick="homeHardwareVentilation(event)"><div class="qnav-icon" id="ventilationNavIcon">🌀</div><div class="qnav-label" id="ventLabel">Activate ventilation</div></div>
       </div>
       <p style="font-size:10px;color:var(--bark-mid);margin:10px 0 0;max-width:32rem;">Commands go to the Pi via the server (set <code style="font-size:9px;">HARDWARE_PI_BASE</code> on the laptop). <a href="#" onclick="event.preventDefault(); goTo('viewdata', document.querySelectorAll('.nav-item')[1]);" style="color:var(--olive);">View Data</a> · <a href="#" onclick="event.preventDefault(); goTo('control', document.querySelectorAll('.nav-item')[2]);" style="color:var(--olive);">Control</a></p>
     </div>

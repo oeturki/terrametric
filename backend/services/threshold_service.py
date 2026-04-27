@@ -116,13 +116,13 @@ def evaluate_telemetry_row(
     t = row.temperature
     if t is not None:
         b = _get_band(d, "temperature")
-        ok = _in_numeric_band(float(t), b.get("min"), b.get("max"))
+        ok = _in_numeric_band(float(t), b.get("warn_low"), b.get("warn_high"))
         _emit(
             "temperature",
             not ok,
             f"Temperature out of range for {cap}",
-            f"Sample {cap}. Reading {t:.1f} °C is outside the saved desired band for this sample "
-            f"({b.get('min', '?')}-{b.get('max', '?')}) °C. "
+            f"Sample {cap}. Reading {t:.1f} °C is outside the tolerance for this sample "
+            f"({b.get('warn_low', '?')}-{b.get('warn_high', '?')}) °C. "
             f"If this is unexpected, check Control Variables and that recording / TM_BRIDGE_PLANT_ID matches this id.",
         )
 
@@ -130,26 +130,26 @@ def evaluate_telemetry_row(
     h = row.humidity
     if h is not None:
         b = _get_band(d, "humidity")
-        ok = _in_numeric_band(float(h), b.get("min"), b.get("max"))
+        ok = _in_numeric_band(float(h), b.get("warn_low"), b.get("warn_high"))
         _emit(
             "humidity",
             not ok,
             f"Humidity out of range for {cap}",
-            f"Sample {cap}. Reading {h:.1f}% is outside the saved desired band "
-            f"({b.get('min', '?')}-{b.get('max', '?')}).",
+            f"Sample {cap}. Reading {h:.1f}% is outside the tolerance "
+            f"({b.get('warn_low', '?')}-{b.get('warn_high', '?')}).",
         )
 
     # --- Light (lux) ---
     light = row.light
     if light is not None:
         b = _get_band(d, "light")
-        ok = _in_numeric_band(float(light), b.get("min"), b.get("max"))
+        ok = _in_numeric_band(float(light), b.get("warn_low"), b.get("warn_high"))
         _emit(
             "light",
             not ok,
             f"Light out of range for {cap}",
-            f"Sample {cap}. Reading {light:.0f} lux is outside the saved desired band "
-            f"({b.get('min', '?')}-{b.get('max', '?')}).",
+            f"Sample {cap}. Reading {light:.0f} lux is outside the tolerance "
+            f"({b.get('warn_low', '?')}-{b.get('warn_high', '?')}).",
         )
 
     # --- Motion: bool -> 0/1 ---
@@ -161,7 +161,7 @@ def evaluate_telemetry_row(
             "motion",
             not ok,
             f"Motion signal out of range for {cap}",
-            f"Sample {cap}. PIR value maps to {v:.0f}, outside saved bounds "
+            f"Sample {cap}. PIR value maps to {v:.0f}, outside the tolerance "
             f"({b.get('min', '?')}-{b.get('max', '?')}).",
         )
 
@@ -169,13 +169,13 @@ def evaluate_telemetry_row(
     hgt = row.plant_height if row.plant_height is not None else row.distance
     if hgt is not None:
         b = _get_band(d, "height")
-        ok = _in_numeric_band(float(hgt), b.get("min"), b.get("max"))
+        ok = _in_numeric_band(float(hgt), b.get("warn_low"), b.get("warn_high"))
         _emit(
             "height",
             not ok,
             f"Height / distance out of range for {cap}",
-            f"Sample {cap}. Value {hgt:.1f} cm is outside the saved desired band "
-            f"({b.get('min', '?')}-{b.get('max', '?')}).",
+            f"Sample {cap}. Value {hgt:.1f} cm is outside the tolerance "
+            f"({b.get('warn_low', '?')}-{b.get('warn_high', '?')}).",
         )
 
     return new_alerts

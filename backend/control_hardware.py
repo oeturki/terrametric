@@ -16,12 +16,24 @@ controls_cache = {}
 last_fetch_time = {} 
 FETCH_INTERVAL = 10  # seconds
 
-last_photo_time = 0 #stores last time the camera took a photo to ensure photo is taken at the requested intervals
+last_run_time = {}
+last_photo_time = {} #stores last time the camera took a photo to ensure photo is taken at the requested intervals
 camera = None  # initalization - only create when needed
+
+
+def is_due(plant_id, variable, controls, now=None):
+    now = now or time.time()
+    plant_times = last_run_time.setdefault(plant_id, {})
+    last = plant_times.get(variable, 0)
+    interval = controls.get(variable, {}).get("interval", 60)
+    if now - last >= interval:
+        plant_times[variable] = now
+        return True
+    return False
 
 def get_camera():
     """initialize camera on first use"""
-    #global camera
+    global camera
     if camera is None:
         try:
             camera = PiCamera()
@@ -97,74 +109,15 @@ def read_sensors(plant_id: int):
         "motion": None
     }
 
-
-def apply_controls(sensors, controls, plant_id):
-
-    #camera variables
-    global last_photo_time
-    now = time.time()
-
+def apply_temperature_control(sensors, controls, plant_id):
     temp = sensors.get("temperature")
-    light = sensors.get("light")
-    height = sensors.get("height")
-    humidity = sensors.get("humidity")
-    motion = sensors.get("motion")
-    motion = sensors.get("motion")
-    if temp is None or light is None or height is None or humidity is None or motion is None:
+    if temp is None:
         return
-
     #temperature threshold calculations
     temp_min = controls["temperature"]["min"]
     temp_max = controls["temperature"]["max"]
-    temp_warn = controls["temperature"]["warn"]
-    temp_high_t = temp_max + temp_warn
-    temp_low_t  = temp_min - temp_warn
-    
-    #light threshold calculations
-    light_min = controls["light"]["min"]
-    light_max = controls["light"]["max"]
-    light_warn = controls["light"]["warn"]
-    light_high_t = light_max + light_warn
-    light_low_t = light_min - light_warn
-    
-    #height threshold calculations
-    height_min = controls["height"]["min"]
-    height_max = controls["height"]["max"]
-    height_warn = controls["height"]["warn"]
-    height_high_t = height_max + height_warn
-    height_low_t = height_min - height_warn
-
-    # humidity threshold calc 
-    humidity_min = controls["humidity"]["min"]
-    humidity_max = controls["humidity"]["max"]
-    humidity_warn = controls["humidity"]["warn"]
-    humidity_high_t = humidity_max + humidity_warn
-    humidity_low_t = humidity_min - humidity_warn
-
-    photo_needed = False 
-    photo_reason = ""
-
-    #takes pic for motion detected
-    if motion:
-        photo_needed = True
-        photo_reason = "motion_detected"
-
-    #takes pic based on user preference or 600s if nothing is chosen
-    interval = controls.get("camera", {}).get("interval", 600)
-    if now - last_photo_time > interval:
-        photo_needed = True
-        photo_reason = "scheduled_interval"
-
-    #takes pic if threshold warning happens
-    if (temp > temp_high_t or temp < temp_low_t or light > light_high_t or light < light_low_t or height > height_high_t or height < height_low_t or humidity > humidity_high_t or humidity < humidity_low_t):
-        photo_needed = True
-        photo_reason = "sensor_warning"
-
-    #logic to actually take the pic based on the above
-    if photo_needed:
-        if photo_reason == "motion_detected" or photo_reason == "scheduled_interval" or (now - last_photo_time > 30):
-            if take_photo(photo_reason, plant_id):
-                last_photo_time = now
+    temp_high_t = controls["temperature"]["warn_high"]
+    temp_low_t  = controls["temperature"]["warn_low"]
 
     if temp > temp_max - 1:
         # Fan ON - connect to fan/motor
@@ -172,6 +125,85 @@ def apply_controls(sensors, controls, plant_id):
     else:
         # Fan OFF - connect to fan/motor  
         pass
+
+def apply_humidity_control(sensors, controls, plant_id):
+    humidity = sensors.get("humidity")
+    if humidity is None:
+        return
+    # humidity threshold calc 
+    humidity_min = controls["humidity"]["min"]
+    humidity_max = controls["humidity"]["max"]
+    humidity_high_t = controls["humidity"]["warn_high"]
+    humidity_low_t = controls["humidity"]["warn_low"]
+
+def apply_light_control(sensors, controls, plant_id):
+    light = sensors.get("light")
+    if light is None:
+        return
+    #light threshold calculations
+    light_min = controls["light"]["min"]
+    light_max = controls["light"]["max"]
+    light_high_t = controls["light"]["warn_high"]
+    light_low_t = controls["light"]["warn_low"]
+
+def apply_motion_control(sensors, controls, plant_id):
+    motion = sensors.get("motion")
+    if motion is None:
+        return
+    
+def apply_height_control(sensors, controls, plant_id):
+    height = sensors.get("height")
+    if height is None:
+        return
+    #height threshold calculations
+    height_min = controls["height"]["min"]
+    height_max = controls["height"]["max"]
+    height_high_t = controls["height"]["warn_high"]
+    height_low_t = controls["height"]["warn_low"]
+    
+def apply_camera_control(sensors, controls, plant_id):
+    temp = sensors.get("temperature")
+    humidity = sensors.get("humidity")
+    light = sensors.get("light")
+    motion = sensors.get("motion")
+    height = sensors.get("height")
+
+    temp_high_t = controls["temperature"]["warn_high"]
+    temp_low_t  = controls["temperature"]["warn_low"]
+    humidity_high_t = controls["humidity"]["warn_high"]
+    humidity_low_t = controls["humidity"]["warn_low"]
+    light_high_t = controls["light"]["warn_high"]
+    light_low_t = controls["light"]["warn_low"]
+    height_high_t = controls["height"]["warn_high"]
+    height_low_t = controls["height"]["warn_low"]
+
+    #camera variables
+    global last_photo_time
+    last = last_photo_time.get(plant_id, 0)
+    now = time.time()
+
+    threshold_warning = (
+    (temp is not None and (temp > temp_high_t or temp < temp_low_t)) or
+    (light is not None and (light > light_high_t or light < light_low_t)) or
+    (height is not None and (height > height_high_t or height < height_low_t)) or
+    (humidity is not None and (humidity > humidity_high_t or humidity < humidity_low_t))
+    )
+
+    photo_reason = None
+    interval = controls.get("camera", {}).get("interval", 600)
+
+    if motion: #takes pic for motion detected
+        photo_reason = "motion_detected"
+    elif threshold_warning: #takes pic if threshold warning happens
+        photo_reason = "sensor_warning"
+    elif now - last > interval: #takes pic based on user preference or 600s if nothing is chosen
+        photo_reason = "scheduled_interval"
+
+    #logic to actually take the pic based on the above
+    if photo_reason:
+        if photo_reason in ["motion_detected", "scheduled_interval"] or (now - last > 30):
+            if take_photo(photo_reason, plant_id):
+                last_photo_time[plant_id] = now
 
 # # upload to the webpage gallery -- to implent if time permits, photos are currently being saved to the researcher's device. 
 # def upload_image(filepath, reason, plant_id):
@@ -204,18 +236,33 @@ def main_loop():
     try:
         while True:
             plant_ids = get_active_plant_ids()
-            if not plant_ids:
-                time.sleep(2)
-                continue
+            now = time.time()
 
             for plant_id in plant_ids:
-                sensors = read_sensors(plant_id)
                 controls = get_controls(plant_id)
                 if controls is None:
                     continue
-                apply_controls(sensors, controls, plant_id)
 
-            time.sleep(2)
+                sensors = read_sensors(plant_id)
+
+                if is_due(plant_id, "temperature", controls, now):
+                    apply_temperature_control(sensors, controls, plant_id)
+
+                if is_due(plant_id, "humidity", controls, now):
+                    apply_humidity_control(sensors, controls, plant_id)
+
+                if is_due(plant_id, "light", controls, now):
+                    apply_light_control(sensors, controls, plant_id)
+
+                if is_due(plant_id, "motion", controls, now):
+                    apply_motion_control(sensors, controls, plant_id)
+
+                if is_due(plant_id, "height", controls, now):
+                    apply_height_control(sensors, controls, plant_id)
+                
+                apply_camera_control(sensors, controls, plant_id)
+
+            time.sleep(1)
     except KeyboardInterrupt:
         print("Stopping...")
     finally:
@@ -228,33 +275,4 @@ if __name__ == "__main__":
     main_loop()
 
 
-# read every interval,  
-# read interval time
-# validation
-# control motor based on desired and tolerance
-# connect to controlling motor/fan,
-# --
-# send alerts based on if outside tolerance? or do you want alerts for when fan and stuff is on as well
-    #if temp > temp_high_t:
-    #    send_alert("temperature", f"Critical high temperature! Reading: {temp:.1f}°C", "danger", plant_id=plant_id)
-    #elif temp < temp_low_t:
-    #    #Please attend to the temperature of plant {plant_id}: it is too cold/cool/low."
-    #    send_alert("temperature", f"Critical low temperature! Reading: {temp:.1f}°C", "danger", plant_id=plant_id)
-    
-    #if light > light_high_t:
-    #    #Please attend to the light intensity of plant {plant_id}: it is too high.
-    #    send_alert("light", f"Critical high light! Reading: {light:.0f} lux", "danger", plant_id=plant_id)
-    #elif light < light_low_t:
-    #    send_alert("light", f"Critical low light! Reading: {light:.0f} lux", "danger", plant_id=plant_id)
-
-    #if height > height_high_t:
-    #    #print(f"⚠ Please attend to plant {plant_id}: it has grown above your desired height threshold.")
-    #    send_alert("height", f"Critical high height! Reading: {height:.1f} cm", "danger", plant_id=plant_id)
-    #elif height < height_low_t:
-    #    send_alert("height", f"Critical low height! Reading: {height:.1f} cm", "danger", plant_id=plant_id)
-
-    #if humidity > humidity_high_t:
-    #    #print(f"⚠ Please attend to the humidity of plant {plant_id}: it is too high.")
-    #    send_alert("humidity", f"Critical high humidity! Reading: {humidity:.1f}%", "danger", plant_id=plant_id)
-    #elif humidity < humidity_low_t:
-    #    send_alert("humidity", f"Critical low humidity! Reading: {humidity:.1f}%", "danger", plant_id=plant_id)
+# control motor based on desired and tolerance + connect to controlling motor/fan
