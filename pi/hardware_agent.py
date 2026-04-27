@@ -7,17 +7,18 @@ Reachability from the laptop: same WiFi or USB Ethernet gadget. From the laptop 
 
 Run (on the Pi):
   export DEVICE_KEY='your-shared-secret'
-  # SERVO_PIN = Broadcom (BCM) number of the *signal* wire (not the 40-pin physical index).
-  # Board silkscreen "D5" / Arduino-style "D5" is often GPIO5 (BCM) on Pi shields — use 5, or check your HAT's pinout.
-  # Standard 3-wire *analog* (hobby) servos: GND, +5V, signal — what AngularServo drives (50 Hz PWM), not a raw analog voltage in.
-  export SERVO_PIN=5
-  # If PWM fails on that pin, try: export SERVO_PIN=12, move wire, OR: sudo apt install -y pigpio && sudo pigpiod
-  # Optional: export USE_PIGPIO=1
+  # --- Ventilation: Pi GPIO (default) ---
+  # export SERVO_PIN=5
+  # export USE_PIGPIO=0
+  # --- Ventilation: Arduino on USB (opt-in, avoids Pi5 PWM issues; servo on Arduino D6) ---
+  # export TERRA_USE_ARDUINO_SERVO=1
+  # export TERRA_ARDUINO_PORT=/dev/ttyACM0
+  # pip install pyserial
   uvicorn hardware_agent:app --host 0.0.0.0 --port 8765
 
 Install (Pi):
   sudo apt install -y python3-picamera2 python3-pil python3-gpiozero
-  pip install fastapi "uvicorn[standard]" python-multipart
+  pip install fastapi "uvicorn[standard]" python-multipart pyserial
 """
 
 from __future__ import annotations
@@ -35,6 +36,10 @@ DEVICE_KEY = os.environ.get("DEVICE_KEY", "").strip()
 # BCM pin for servo *signal* (default 5 for typical "D5" / GPIO5 wiring; override if your HAT maps D5 elsewhere).
 SERVO_PIN = int(os.environ.get("SERVO_PIN", "5"))
 USE_PIGPIO = os.environ.get("USE_PIGPIO", "").strip().lower() in ("1", "true", "yes")
+# Opt-in: drive servo on Arduino (USB serial S###) instead of Pi GPIO — no GPIO PWM on the Pi in this mode.
+USE_ARDUINO_SERVO = os.environ.get("TERRA_USE_ARDUINO_SERVO", "").strip().lower() in ("1", "true", "yes")
+ARDUINO_PORT = (os.environ.get("TERRA_ARDUINO_PORT") or "/dev/ttyACM0").strip()
+ARDUINO_BAUD = int(os.environ.get("TERRA_ARDUINO_BAUD", "9600"))
 
 app = FastAPI(title="TerraMetric Pi hardware agent", version="1.0.0")
 
@@ -91,6 +96,72 @@ def _capture_jpeg_bytes() -> bytes:
     buf = io.BytesIO()
     im.save(buf, format="JPEG", quality=85)
     return buf.getvalue()
+
+
+# --- Optional: ventilate via Arduino (USB) — see TERRA_USE_ARDUINO_SERVO, arduino/arduino_bluetooth -- Servo on D6 ---
+_arduino_serial = None  # type: ignore[var-annotated]
+
+
+def _get_arduino_serial():
+    global _arduino_serial
+    if _arduino_serial is not None:
+        try:
+            if _arduino_serial.is_open:  # type: ignore[union-attr]
+                return _arduino_serial
+        except Exception:
+            _arduino_serial = None
+    try:
+        import serial  # type: ignore[import-not-found]
+    except ImportError as e:
+        raise HTTPException(503, detail="pyserial not installed. In the venv: pip install pyserial") from e
+    try:
+        _arduino_serial = serial.Serial(ARDUINO_PORT, ARDUINO_BAUD, timeout=0.2)  # type: ignore[assignment]
+        time.sleep(0.15)
+        return _arduino_serial
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Arduino USB not available at {ARDUINO_PORT} ({e!s}). "
+                "Plug Arduino into the Pi, check dmesg for ttyACM* / ttyUSB*, or set TERRA_USE_ARDUINO_SERVO=0 to use Pi GPIO only."
+            ),
+        ) from e
+
+
+def _arduino_set_angle(deg: float) -> None:
+    ser = _get_arduino_serial()
+    d = int(max(0, min(180, round(deg))))
+    ser.write(f"S{d}\n".encode("ascii"))
+    ser.flush()
+    time.sleep(0.02)
+
+
+def _arduino_spin_sweep() -> tuple[float, str]:
+    pattern = [0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 160, 140, 120, 100, 80, 60, 40, 20, 90]
+    step_s = 0.045
+    for a in pattern:
+        _arduino_set_angle(float(a))
+        time.sleep(step_s)
+    return 90.0, f"Arduino sweep on {ARDUINO_PORT} ({len(pattern)} steps), rest 90°"
+
+
+def _apply_ventilation_arduino(body: VentilationBody) -> tuple[float, str]:
+    if body.angle is not None:
+        ang = max(0.0, min(180.0, float(body.angle)))
+        _arduino_set_angle(ang)
+        return ang, f"Arduino servo {ang}° (USB {ARDUINO_PORT})"
+    if body.on is False:
+        _arduino_set_angle(0.0)
+        return 0.0, f"Arduino servo 0° ({ARDUINO_PORT})"
+    if body.on is True and body.spin:
+        return _arduino_spin_sweep()
+    if body.on is True and not body.spin:
+        _arduino_set_angle(90.0)
+        return 90.0, f"Arduino servo 90° (no sweep) ({ARDUINO_PORT})"
+    if body.spin:
+        return _arduino_spin_sweep()
+    _arduino_set_angle(90.0)
+    return 90.0, f"Arduino servo 90° ({ARDUINO_PORT})"
 
 
 _servo = None
@@ -187,6 +258,8 @@ def _spin_sweep(srv: object) -> tuple[float, str]:
 
 
 def _apply_ventilation(body: VentilationBody) -> tuple[float, str]:
+    if USE_ARDUINO_SERVO:
+        return _apply_ventilation_arduino(body)
     srv = _ensure_servo()
 
     if body.angle is not None:
@@ -215,7 +288,11 @@ def _apply_ventilation(body: VentilationBody) -> tuple[float, str]:
 @app.get("/health")
 def health():
     """Public: use from the laptop to verify `ping` + TCP (no key required)."""
-    return {"status": "ok", "service": "terrametric_hardware_agent"}
+    m: dict = {"status": "ok", "service": "terrametric_hardware_agent"}
+    m["ventilation"] = "arduino_usb" if USE_ARDUINO_SERVO else "pi_gpio"
+    if USE_ARDUINO_SERVO:
+        m["arduino_port"] = ARDUINO_PORT
+    return m
 
 
 @app.post("/camera/capture")

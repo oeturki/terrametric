@@ -16,6 +16,14 @@
 // 1. Include the SoftwareSerial library so we can use digital pins for serial RX/TX.
 #include <SoftwareSerial.h>
 #include <DHT.h>
+#include <Servo.h>
+
+// Set 0 when the Pi sends servo commands on USB (S###) — Bluetooth bridge still gets JSON; USB stays clean.
+#ifndef TERRA_TELEM_JSON_TO_USB
+#define TERRA_TELEM_JSON_TO_USB 0
+#endif
+// Servo signal on D6 (per shield wiring). Do not use pin 5 here — pin 5 is ULTRASONIC in this sketch.
+#define SERVO_SIGNAL_PIN 6
 
 // 2. Assign pins for the SoftwareSerial (Bluetooth) module and the PIR sensor.
 #define RxD 8    // Arduino RX pin for Bluetooth
@@ -29,6 +37,7 @@
 // 3. Instantiate a SoftwareSerial object using pins RxD and TxD.
 SoftwareSerial blueToothSerial(RxD, TxD);
 DHT dht(TEMP_HUMID_SENSOR, DHTTYPE);
+Servo terrametricServo;
 
 void setup()
 {
@@ -46,9 +55,9 @@ void setup()
   pinMode(RxD, INPUT);
   pinMode(TxD, OUTPUT);
   dht.begin();
-  
+  terrametricServo.attach(SERVO_SIGNAL_PIN);
 
-  // 6. Set up the Bluetooth module with the desired baud rate, role, and name.
+  // 6. Set up the Bluetooth module
   setupBlueToothConnection();
 
   // 7. Flush any lingering data on both the hardware and software serial buffers.
@@ -56,8 +65,30 @@ void setup()
   blueToothSerial.flush();
 }
 
+// Pi (hardware_agent) can send e.g. S90 on USB; angle 0-180. Buffer one line.
+void readUsbServoLines()
+{
+  static String line;
+  while (Serial.available() > 0) {
+    char c = (char)Serial.read();
+    if (c == '\r') { continue; }
+    if (c == '\n') {
+      line.trim();
+      if (line.length() > 1 && (line[0] == 'S' || line[0] == 's')) {
+        int a = line.substring(1).toInt();
+        a = constrain(a, 0, 180);
+        terrametricServo.write(a);
+      }
+      line = "";
+    } else if (line.length() < 20) {
+      line += c;
+    }
+  }
+}
+
 void loop()
 {
+  readUsbServoLines();
   // 8. Check if there is any data coming from the Bluetooth module (blueToothSerial).
   //    If so, read it character by character and print it to the Arduino Serial Monitor.
   if (blueToothSerial.available() > 0) {
@@ -73,7 +104,9 @@ void loop()
   int light = analogRead(LIGHT_SENSOR);
   if (isnan(temp)||isnan(humid)) {
     blueToothSerial.println("{\"temperature\":null,\"humidity\":null}");
+#if TERRA_TELEM_JSON_TO_USB
     Serial.println("{\"temperature\":null,\"humidity\":null}");
+#endif
   }
   else{
 
@@ -112,7 +145,9 @@ void loop()
     json += String(distance);
     json += "}";
     blueToothSerial.println(json);
+#if TERRA_TELEM_JSON_TO_USB
     Serial.println(json);
+#endif
   }
   delay(200);
 }
