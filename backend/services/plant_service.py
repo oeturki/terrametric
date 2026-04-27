@@ -3,10 +3,14 @@ FR7 — CRUD for plants (samples / trays).
 """
 
 import json
+import logging
 from datetime import datetime
 from typing import List, Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from models.audit_log import AuditLog
 from models.plant import Plant
@@ -16,6 +20,32 @@ from services.default_control_profile import default_control_json
 
 
 def list_plants(db: Session, owner_id: Optional[int] = None) -> List[Plant]:
+    """
+    List plants for an owner. Before filtering, reassign any rows this user
+    *created* (`created_by`) that still have a different (or null) `owner_id`.
+    This fixes samples that were attached to the first account by legacy
+    ``bootstrap_auth`` or missing ownership columns.
+
+    After deploying a build that includes this reclaim logic, **restart the API** so
+    the first ``GET /api/plants`` for each user can repair rows. Check logs for
+    ``reclaimed N plant(s) for owner`` to verify the path ran.
+    """
+    if owner_id is not None:
+        fixed = (
+            db.query(Plant)
+            .filter(
+                Plant.created_by == owner_id,
+                or_(Plant.owner_id.is_(None), Plant.owner_id != owner_id),
+            )
+            .update({Plant.owner_id: owner_id}, synchronize_session="fetch")
+        )
+        if fixed:
+            logger.info(
+                "reclaimed %s plant(s) for owner_id=%s (owner_id aligned with created_by)",
+                fixed,
+                owner_id,
+            )
+            db.commit()
     q = db.query(Plant)
     if owner_id is not None:
         q = q.filter(Plant.owner_id == owner_id)
@@ -35,7 +65,16 @@ def get_plant_for_owner(db: Session, plant_id: int, owner_id: int) -> Optional[P
 
 
 def get_plant_by_qr(db: Session, qr: str) -> Optional[Plant]:
+    """First row with this QR (legacy). Prefer :func:`get_plant_by_qr_for_owner` when scoping by user."""
     return db.query(Plant).filter(Plant.qr_code == qr).first()
+
+
+def get_plant_by_qr_for_owner(db: Session, qr: str, owner_id: int) -> Optional[Plant]:
+    return (
+        db.query(Plant)
+        .filter(Plant.qr_code == qr, Plant.owner_id == owner_id)
+        .first()
+    )
 
 
 def create_plant(db: Session, data: PlantCreate, user_id: Optional[int] = None) -> Plant:
@@ -79,6 +118,21 @@ def update_plant(db: Session, plant_id: int, data: PlantUpdate, user_id: Optiona
     if user_id is not None and p.owner_id is not None and p.owner_id != user_id:
         return None
     payload = data.model_dump(exclude_unset=True, by_alias=True)
+    new_qr = (payload.get("qr") or payload.get("qr_code") or "").strip() or None
+    if new_qr and user_id is not None:
+        dupe = (
+            db.query(Plant)
+            .filter(
+                Plant.owner_id == user_id,
+                Plant.qr_code == new_qr,
+                Plant.id != plant_id,
+            )
+            .first()
+        )
+        if dupe is not None:
+            raise ValueError(
+                f"A sample with QR '{new_qr}' already exists in your account (id={dupe.id})."
+            )
     alias_to_attr = {"loc": "location", "germ": "germination_date", "qr": "qr_code"}
     for k, v in payload.items():
         attr = alias_to_attr.get(k, k)

@@ -167,6 +167,26 @@ if (typeof initSamplesRecordingUI === 'function') initSamplesRecordingUI();
 
 applyRouteFromHash();
 
+// Load samples + other API state whenever the shell has a token. Do not rely only on
+// checkConnection’s !isConnected branch: after login→index, the Back-Forward cache can
+// restore a frozen page with isConnected===true, so fetchAll() was skipped and trays
+// stayed empty until a save triggered fetchSamples.
+(function bootFetchWithToken() {
+  if (typeof getAccessToken !== 'function' || !getAccessToken() || typeof fetchAll !== 'function') {
+    return;
+  }
+  fetchAll();
+})();
+
+/** bfcache restore: scripts do not re-run; re-fetch the plant list and related data. */
+window.addEventListener('pageshow', function (ev) {
+  if (!ev.persisted) return;
+  if (typeof getAccessToken !== 'function' || !getAccessToken() || typeof fetchAll !== 'function') {
+    return;
+  }
+  fetchAll();
+});
+
 setInterval(() => { if (isConnected) fetchLatest(); },                                                        CONFIG.REFRESH_LIVE);
 setInterval(() => { if (isConnected) { fetchTelemetry(); fetchAlerts(); fetchAnomalies(); fetchGallery(); } }, CONFIG.REFRESH_CHARTS);
 setInterval(() => { if (isConnected) fetchAlerts(); },                                                        CONFIG.REFRESH_ALERTS);

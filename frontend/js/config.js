@@ -24,18 +24,22 @@ const CONFIG = {
     hum_min:          20,
     hum_max:          40,
     hum_warn:          5,   // %
+    hum_warn_lo:      null,
     hum_interval:     60, // seconds
     light_min:      5000,
     light_max:     10000,
     light_warn:      500,  // lux
+    light_warn_lo:  null,
     light_interval:   60, // seconds
     motion_min:        0,
     motion_max:        1,
     motion_warn:       1,
+    motion_warn_lo:   null,
     motion_interval:  20, // seconds
     height_min:        0,
     height_max:    10000,
     height_warn:       5,   // cm
+    height_warn_lo:   null,
     height_interval:1440,   // minutes
     cam_on_motion:     0,
     cam_on_alert:      0,
@@ -60,6 +64,8 @@ const CONFIG = {
     dummyBackfill:  '/api/dummy/backfill',
     control:   '/api/control',
     camera:    '/api/camera/images',
+    hardwareCapture:   '/api/hardware/capture',
+    hardwareVentilation: '/api/hardware/ventilation',
   },
 };
 
@@ -152,6 +158,11 @@ async function fetchControls() {
     if (data.humidity){
       document.getElementById("humid-min").value = data.humidity.min ?? "";
       document.getElementById("humid-max").value = data.humidity.max ?? "";
+      const hwl = data.humidity.warn_low;
+      const humLo = document.getElementById("warn-hum-lo");
+      if (humLo) {
+        humLo.value = hwl != null && hwl !== "" ? hwl : "";
+      }
       document.getElementById("warn-hum").value = data.humidity.warn ?? "";
       document.getElementById("int-hum").value = data.humidity.interval ?? "";
     }
@@ -160,6 +171,11 @@ async function fetchControls() {
     if (data.light){
       document.getElementById("light-min").value = data.light.min ?? "";
       document.getElementById("light-max").value = data.light.max ?? "";
+      const lwl = data.light.warn_low;
+      const lLo = document.getElementById("warn-light-lo");
+      if (lLo) {
+        lLo.value = lwl != null && lwl !== "" ? lwl : "";
+      }
       document.getElementById("warn-light").value = data.light.warn ?? "";
       document.getElementById("int-light").value = data.light.interval ?? "";
     }
@@ -168,6 +184,11 @@ async function fetchControls() {
     if (data.motion){
       document.getElementById("motion-min").value = data.motion.min ?? "";
       document.getElementById("motion-max").value = data.motion.max ?? "";
+      const mwl = data.motion.warn_low;
+      const mLo = document.getElementById("warn-motion-lo");
+      if (mLo) {
+        mLo.value = mwl != null && mwl !== "" ? mwl : "";
+      }
       document.getElementById("warn-motion").value = data.motion.warn ?? "";
       document.getElementById("int-motion").value = data.motion.interval ?? "";
     }
@@ -176,6 +197,11 @@ async function fetchControls() {
     if (data.height){
       document.getElementById("height-min").value = data.height.min ?? "";
       document.getElementById("height-max").value = data.height.max ?? "";
+      const ywl = data.height.warn_low;
+      const hLo = document.getElementById("warn-height-lo");
+      if (hLo) {
+        hLo.value = ywl != null && ywl !== "" ? ywl : "";
+      }
       document.getElementById("warn-height").value = data.height.warn ?? "";
       document.getElementById("int-height").value = data.height.interval ?? "";
     }
@@ -203,6 +229,16 @@ async function fetchControls() {
   }
 }
 
+/** Optional numeric from control input: empty / invalid -> null (same as temperature). */
+function _optControlFloat(id) {
+  const el = document.getElementById(id);
+  if (!el || el.value === "") {
+    return null;
+  }
+  const x = parseFloat(el.value);
+  return isNaN(x) ? null : x;
+}
+
 function getControlData() {
   const sel = document.getElementById("groupSelect");
   const plantId = sel && sel.value ? parseInt(sel.value, 10) : NaN;
@@ -215,50 +251,40 @@ function getControlData() {
     temperature: {
       min: parseFloat(document.getElementById("temp-min").value),
       max: parseFloat(document.getElementById("temp-max").value),
-      warn_low: (function () {
-        const el = document.getElementById("warn-temp-lo");
-        if (!el || el.value === "") {
-          return null;
-        }
-        const x = parseFloat(el.value);
-        return isNaN(x) ? null : x;
-      })(),
-      warn: (function () {
-        const el = document.getElementById("warn-temp");
-        if (!el || el.value === "") {
-          return null;
-        }
-        const x = parseFloat(el.value);
-        return isNaN(x) ? null : x;
-      })(),
+      warn_low: _optControlFloat("warn-temp-lo"),
+      warn: _optControlFloat("warn-temp"),
       interval: parseInt(document.getElementById("int-temp").value, 10)
     },
 
     humidity: {
       min: parseFloat(document.getElementById("humid-min").value),
       max: parseFloat(document.getElementById("humid-max").value),
-      warn: parseFloat(document.getElementById("warn-hum").value),
+      warn_low: _optControlFloat("warn-hum-lo"),
+      warn: _optControlFloat("warn-hum"),
       interval: parseInt(document.getElementById("int-hum").value, 10)
     },
 
     light: {
       min: parseFloat(document.getElementById("light-min").value),
       max: parseFloat(document.getElementById("light-max").value),
-      warn: parseFloat(document.getElementById("warn-light").value),
+      warn_low: _optControlFloat("warn-light-lo"),
+      warn: _optControlFloat("warn-light"),
       interval: parseInt(document.getElementById("int-light").value, 10)
     },
 
     motion: {
       min: parseFloat(document.getElementById("motion-min").value),
       max: parseFloat(document.getElementById("motion-max").value),
-      warn: parseFloat(document.getElementById("warn-motion").value),
+      warn_low: _optControlFloat("warn-motion-lo"),
+      warn: _optControlFloat("warn-motion"),
       interval: parseInt(document.getElementById("int-motion").value, 10)
     },
 
     height: {
       min: parseFloat(document.getElementById("height-min").value),
       max: parseFloat(document.getElementById("height-max").value),
-      warn: parseFloat(document.getElementById("warn-height").value),
+      warn_low: _optControlFloat("warn-height-lo"),
+      warn: _optControlFloat("warn-height"),
       interval: parseInt(document.getElementById("int-height").value, 10)
     },
 
@@ -389,6 +415,11 @@ document.addEventListener("DOMContentLoaded", async function () {
   attachRangeValidation('humid-min', 'humid-max');
   attachRangeValidation('light-min', 'light-max');
   attachRangeValidation('height-min', 'height-max');
+  attachRangeValidation('warn-temp-lo', 'warn-temp');
+  attachRangeValidation('warn-hum-lo', 'warn-hum');
+  attachRangeValidation('warn-light-lo', 'warn-light');
+  attachRangeValidation('warn-motion-lo', 'warn-motion');
+  attachRangeValidation('warn-height-lo', 'warn-height');
 });
 
 function validateControls(data) {
@@ -424,13 +455,28 @@ function validateControls(data) {
     return false;
   }
 
+  if (data.humidity.min >= data.humidity.max) {
+    alert("Humidity min must be less than max");
+    return false;
+  }
+
   if (data.humidity.min < 0 || data.humidity.max > 100) {
     alert("Humidity must be between 0 and 100");
     return false;
   }
 
-  if (data.humidity.warn > 100) {
-    alert("Humidity warning cannot exceed 100%");
+  const hW = data.humidity.warn;
+  const hWl = data.humidity.warn_low;
+  if (hW != null && !isNaN(hW) && (hW > 100 || hW < 0)) {
+    alert("Humidity tolerance (high) must be between 0 and 100%");
+    return false;
+  }
+  if (hWl != null && !isNaN(hWl) && (hWl > 100 || hWl < 0)) {
+    alert("Humidity tolerance (low) must be between 0 and 100%");
+    return false;
+  }
+  if (hWl != null && !isNaN(hWl) && hW != null && !isNaN(hW) && hWl >= hW) {
+    alert("Humidity tolerance low must be less than tolerance high");
     return false;
   }
 
@@ -445,6 +491,45 @@ function validateControls(data) {
     return false;
   }
 
+  const lW = data.light.warn;
+  const lWl = data.light.warn_low;
+  if (lW != null && !isNaN(lW) && lW < 0) {
+    alert("Light tolerance (high) cannot be negative");
+    return false;
+  }
+  if (lWl != null && !isNaN(lWl) && lWl < 0) {
+    alert("Light tolerance (low) cannot be negative");
+    return false;
+  }
+  if (lWl != null && !isNaN(lWl) && lW != null && !isNaN(lW) && lWl >= lW) {
+    alert("Light tolerance low must be less than tolerance high");
+    return false;
+  }
+
+  // ── Motion ──
+  if (isNaN(data.motion.min) || isNaN(data.motion.max)) {
+    alert("Motion range must be numbers");
+    return false;
+  }
+  if (data.motion.min >= data.motion.max) {
+    alert("Motion min must be less than max");
+    return false;
+  }
+  const mW = data.motion.warn;
+  const mWl = data.motion.warn_low;
+  if (mWl != null && !isNaN(mWl) && mW != null && !isNaN(mW) && mWl >= mW) {
+    alert("Motion tolerance low must be less than tolerance high");
+    return false;
+  }
+  if (mWl != null && !isNaN(mWl) && (mWl < 0 || mWl > 1)) {
+    alert("Motion tolerance (low) must be between 0 and 1");
+    return false;
+  }
+  if (mW != null && !isNaN(mW) && (mW < 0 || mW > 1)) {
+    alert("Motion tolerance (high) must be between 0 and 1");
+    return false;
+  }
+
   // ── Height ──
   if (isNaN(data.height.min) || isNaN(data.height.max)) {
     alert("Height values must be numbers");
@@ -453,6 +538,12 @@ function validateControls(data) {
 
   if (data.height.min >= data.height.max) {
     alert("Height min must be less than max");
+    return false;
+  }
+  const yW = data.height.warn;
+  const yWl = data.height.warn_low;
+  if (yWl != null && !isNaN(yWl) && yW != null && !isNaN(yW) && yWl >= yW) {
+    alert("Height tolerance low must be less than tolerance high");
     return false;
   }
 

@@ -52,11 +52,11 @@ def create_plant(
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     if body.qr_code:
-        existing = plant_svc.get_plant_by_qr(db, body.qr_code)
+        existing = plant_svc.get_plant_by_qr_for_owner(db, body.qr_code, user.id)
         if existing is not None:
             raise HTTPException(
                 status_code=409,
-                detail=f"A sample with QR '{body.qr_code}' already exists (id={existing.id}).",
+                detail=f"A sample with QR '{body.qr_code}' already exists in your account (id={existing.id}).",
             )
     p = plant_svc.create_plant(db, body, user_id=user.id)
     return _plant_tray_dict(p)
@@ -79,8 +79,8 @@ def delete_all_plants(
 
 @router.get("/qr/{qr}")
 def get_by_qr(qr: str, db: OrmSession = Depends(get_db), user: User = Depends(get_current_user)):
-    p = plant_svc.get_plant_by_qr(db, qr)
-    if not p or p.owner_id != user.id:
+    p = plant_svc.get_plant_by_qr_for_owner(db, qr, user.id)
+    if not p:
         raise HTTPException(status_code=404, detail="Plant not found for QR")
     return _plant_tray_dict(p)
 
@@ -112,7 +112,10 @@ def update_plant(
     db: OrmSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    p = plant_svc.update_plant(db, plant_id, body, user_id=user.id)
+    try:
+        p = plant_svc.update_plant(db, plant_id, body, user_id=user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     if not p:
         raise HTTPException(status_code=404, detail="Plant not found")
     return _plant_tray_dict(p)

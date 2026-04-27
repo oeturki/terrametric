@@ -404,6 +404,38 @@ async function saveSample() {
       } catch (_) {
         if (text) detail = text.length > 300 ? text.slice(0, 300) + '…' : text;
       }
+      // 409: QR already in this account (common when default TM-S00n collides with an existing id).
+      if (res.status === 409 && typeof nextFreeTmQr === 'function' && typeof trays !== 'undefined') {
+        var serverQrs = [];
+        try {
+          const pr = await authFetch(API_BASE + CONFIG.ENDPOINTS.plants);
+          if (pr.ok) {
+            const pdata = await pr.json();
+            const plist = Array.isArray(pdata) ? pdata : pdata.plants || [];
+            serverQrs = plist.map(function (p) { return p && p.qr; }).filter(Boolean);
+          }
+        } catch (_) { /* ignore */ }
+        var nq = nextFreeTmQr(serverQrs);
+        var cur = trays[selectedTray];
+        if (cur) {
+          cur.qr = nq;
+        }
+        var dqr = document.getElementById('d-qr');
+        if (dqr) dqr.value = nq;
+        if (typeof buildTrayList === 'function') buildTrayList();
+        if (typeof selectTray === 'function' && typeof selectedTray === 'number') {
+          selectTray(selectedTray);
+        }
+        if (typeof fireAlert === 'function') {
+          fireAlert(
+            'info',
+            'QR already in use',
+            'The server already has a sample with that code. Suggested: ' + nq + ' — save again to create or update this row.',
+            8000
+          );
+        }
+        return;
+      }
       throw new Error(detail);
     }
     const serverRow = await res.json();
@@ -421,6 +453,58 @@ async function saveSample() {
       return;
     }
     fireAlert('warning', 'Could not save on the server', msg + ' — Sign in at login.html if needed; the form data is still in this page.', 9000);
+  }
+}
+
+// ── Home: Pi camera + ventilation (laptop API proxies to `pi/hardware_agent.py`) ──
+
+async function homeHardwareCapture(ev) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  try {
+    const res = await authFetch(API_BASE + CONFIG.ENDPOINTS.hardwareCapture, { method: 'POST' });
+    if (!res.ok) {
+      let msg = await res.text();
+      try {
+        const j = JSON.parse(msg);
+        if (j.detail !== undefined) {
+          msg = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail);
+        }
+      } catch (_) { /* keep text */ }
+      throw new Error(msg || ('HTTP ' + res.status));
+    }
+    const blob = await res.blob();
+    const u = URL.createObjectURL(blob);
+    window.open(u, '_blank', 'noopener');
+    fireAlert('ok', 'Camera', 'Picture captured — opened in a new tab.');
+    setTimeout(function () {
+      try { URL.revokeObjectURL(u); } catch (_) { /* ignore */ }
+    }, 120000);
+  } catch (e) {
+    const m = e && e.message ? String(e.message) : String(e);
+    fireAlert('danger', 'Camera', m, 8000);
+  }
+}
+
+async function homeHardwareVentilation(ev) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  try {
+    const res = await authFetch(API_BASE + CONFIG.ENDPOINTS.hardwareVentilation, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on: true })
+    });
+    const text = await res.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { detail: text }; }
+    if (!res.ok) {
+      const d = data.detail;
+      const msg = typeof d === 'string' ? d : (text || ('HTTP ' + res.status));
+      throw new Error(msg);
+    }
+    fireAlert('ok', 'Ventilation', (data && data.detail) ? String(data.detail) : 'Servo command sent', 5000);
+  } catch (e) {
+    const m = e && e.message ? String(e.message) : String(e);
+    fireAlert('danger', 'Ventilation', m, 8000);
   }
 }
 
