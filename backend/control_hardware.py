@@ -16,8 +16,20 @@ controls_cache = {}
 last_fetch_time = {} 
 FETCH_INTERVAL = 10  # seconds
 
+last_run_time = {}
 last_photo_time = 0 #stores last time the camera took a photo to ensure photo is taken at the requested intervals
 camera = None  # initalization - only create when needed
+
+
+def is_due(plant_id, variable, controls, now=None):
+    now = now or time.time()
+    plant_times = last_run_time.setdefault(plant_id, {})
+    last = plant_times.get(variable, 0)
+    interval = controls.get(variable, {}).get("interval", 60)
+    if now - last >= interval:
+        plant_times[variable] = now
+        return True
+    return False
 
 def get_camera():
     """initialize camera on first use"""
@@ -200,6 +212,36 @@ def get_active_plant_ids():
         return []
 
 
+
+def main_loop():
+    while True:
+        plant_ids = get_active_plant_ids()
+        now = time.time()
+
+        for plant_id in plant_ids:
+            controls = get_controls(plant_id)
+            if controls is None:
+                continue
+
+            sensors = read_sensors(plant_id)
+
+            if is_due(plant_id, "temperature", controls, now):
+                apply_temperature_control(sensors["temperature"], controls["temperature"], plant_id)
+
+            if is_due(plant_id, "humidity", controls, now):
+                apply_humidity_control(sensors["humidity"], controls["humidity"], plant_id)
+
+            if is_due(plant_id, "light", controls, now):
+                apply_light_control(sensors["light"], controls["light"], plant_id)
+
+            if is_due(plant_id, "motion", controls, now):
+                apply_motion_control(sensors["motion"], controls["motion"], plant_id)
+
+            if is_due(plant_id, "height", controls, now):
+                apply_height_control(sensors["height"], controls["height"], plant_id)
+
+        time.sleep(1)
+        
 def main_loop():
     try:
         while True:
@@ -228,11 +270,9 @@ if __name__ == "__main__":
     main_loop()
 
 
-# read every interval,  
-# read interval time
+# read every interval, read interval time
 # validation
-# control motor based on desired and tolerance
-# connect to controlling motor/fan,
+# control motor based on desired and tolerance + connect to controlling motor/fan,
 # --
 # send alerts based on if outside tolerance? or do you want alerts for when fan and stuff is on as well
     #if temp > temp_high_t:
