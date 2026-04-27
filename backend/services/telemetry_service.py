@@ -55,7 +55,8 @@ def store_telemetry_row(
     If there is *no* open session, an optional ``plant_id`` from ingest still tags the row for
     threshold evaluation against that sample's control profile (backfill / bench mode).
     """
-    now = datetime.fromtimestamp(key, tz=timezone.utc)
+    #now = datetime.fromtimestamp(key, tz=timezone.utc)
+    now = datetime.now(timezone.utc)
     open_sess = None
     if plant_id is not None:
         open_sess = get_open_session_for_plant(db, plant_id)
