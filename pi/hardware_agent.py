@@ -40,10 +40,11 @@ app = FastAPI(title="TerraMetric Pi hardware agent", version="1.0.0")
 
 
 class VentilationBody(BaseModel):
-    """Optional: set servo angle (deg) or simple on/off (maps to 90° / 0°)."""
+    """on=True with no fixed angle: sweep servo for visible motion. spin=False: jump to 90° only."""
 
     on: Optional[bool] = None
     angle: Optional[float] = Field(default=None, ge=0, le=180)
+    spin: bool = True
 
 
 def _require_key(x_device_key: Optional[str]) -> None:
@@ -155,31 +156,60 @@ def _ensure_servo() -> "object":
             _pin_factory_tried = "pigpio (auto)"
             _servo = _make_angular_servo()
         except Exception as e1:
+            extra = (
+                " In the venv run: pip install pigpio. Also: sudo apt install -y pigpio && sudo pigpiod (daemon must be running)."
+            )
+            if "pigpio" in str(e1).lower() and "module" in str(e1).lower():
+                extra = " Install the *Python* client: `pip install pigpio` (same venv as uvicorn), then `sudo apt install -y pigpio && sudo pigpiod`."
             raise HTTPException(
                 status_code=503,
                 detail=(
                     f"PWM not available on GPIO{SERVO_PIN} ({err0}). "
-                    f"On Pi 5, move the servo signal to BCM 12 or 13, set e.g. export SERVO_PIN=12, restart. "
-                    f"Or run: sudo apt install -y pigpio && sudo pigpiod then retry (agent auto-tried pigpio: {e1!s})."
+                    f"Option A: move servo signal to BCM 12 or 13, `export SERVO_PIN=12` (or 13), restart the agent. "
+                    f"Option B: use pigpiod for software PWM on more pins —{extra} Auto-fallback error: {e1!s}"
                 ),
             ) from e0
 
     return _servo
 
 
-def _apply_ventilation(body: VentilationBody) -> tuple[float, str]:
-    if body.angle is not None:
-        ang = float(body.angle)
-    elif body.on is True:
-        ang = 90.0
-    elif body.on is False:
-        ang = 0.0
-    else:
-        ang = 90.0  # default "on" nudge for empty body
+def _spin_sweep(srv: object) -> tuple[float, str]:
+    """
+    Standard positional servos: step through angles so the horn visibly sweeps
+    (not a continuous 'motor spin'—that needs a different servo type and API).
+    """
+    pattern = [0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 160, 140, 120, 100, 80, 60, 40, 20, 90]
+    step_s = 0.045
+    for a in pattern:
+        srv.angle = float(a)  # type: ignore[union-attr]
+        time.sleep(step_s)
+    return 90.0, f"Sweep on GPIO{SERVO_PIN} ({len(pattern)} steps), rest 90° ({_pin_factory_tried or 'default'})"
 
+
+def _apply_ventilation(body: VentilationBody) -> tuple[float, str]:
     srv = _ensure_servo()
-    srv.angle = max(0.0, min(180.0, ang))
-    return ang, f"Servo on GPIO{SERVO_PIN} set to {srv.angle}° ({_pin_factory_tried or 'default'})"
+
+    if body.angle is not None:
+        ang = max(0.0, min(180.0, float(body.angle)))
+        srv.angle = ang
+        return ang, f"Servo on GPIO{SERVO_PIN} set to {ang}°"
+
+    if body.on is False:
+        srv.angle = 0.0
+        return 0.0, f"Servo on GPIO{SERVO_PIN} set to 0°"
+
+    # on is True or omitted (treat as vent on)
+    if body.on is True and body.spin:
+        return _spin_sweep(srv)
+    if body.on is True and not body.spin:
+        srv.angle = 90.0
+        return 90.0, f"Servo on GPIO{SERVO_PIN} set to 90° (no sweep)"
+
+    # Empty body or {}: same as a spin for a satisfying click
+    if body.spin:
+        return _spin_sweep(srv)
+    srv.angle = 90.0
+    return 90.0, f"Servo on GPIO{SERVO_PIN} set to 90°"
 
 
 @app.get("/health")

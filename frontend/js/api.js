@@ -458,6 +458,38 @@ async function saveSample() {
 
 // ── Home: Pi camera + ventilation (laptop API proxies to `pi/hardware_agent.py`) ──
 
+var TERRAMETRIC_VENT_STATE_KEY = 'terrametric_ventilation_on';
+
+function _ventilationIsOn() {
+  try {
+    return localStorage.getItem(TERRAMETRIC_VENT_STATE_KEY) === '1';
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Sync Home tile label + aria with stored toggle (call on load and after each successful click). */
+function syncVentilationButtonLabel() {
+  var on = _ventilationIsOn();
+  var label = document.getElementById('ventLabel');
+  var btn = document.getElementById('ventilationNavBtn');
+  if (label) {
+    label.textContent = on ? 'Deactivate ventilation' : 'Activate ventilation';
+  }
+  if (btn) {
+    btn.setAttribute('data-vent-active', on ? '1' : '0');
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+}
+
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', syncVentilationButtonLabel);
+  } else {
+    syncVentilationButtonLabel();
+  }
+}
+
 async function homeHardwareCapture(ev) {
   if (ev && ev.stopPropagation) ev.stopPropagation();
   try {
@@ -487,11 +519,14 @@ async function homeHardwareCapture(ev) {
 
 async function homeHardwareVentilation(ev) {
   if (ev && ev.stopPropagation) ev.stopPropagation();
+  var turningOn = !_ventilationIsOn();
   try {
     const res = await authFetch(API_BASE + CONFIG.ENDPOINTS.hardwareVentilation, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ on: true })
+      body: JSON.stringify(
+        turningOn ? { on: true, spin: true } : { on: false, spin: false }
+      )
     });
     const text = await res.text();
     let data = {};
@@ -501,7 +536,12 @@ async function homeHardwareVentilation(ev) {
       const msg = typeof d === 'string' ? d : (text || ('HTTP ' + res.status));
       throw new Error(msg);
     }
-    fireAlert('ok', 'Ventilation', (data && data.detail) ? String(data.detail) : 'Servo command sent', 5000);
+    try {
+      localStorage.setItem(TERRAMETRIC_VENT_STATE_KEY, turningOn ? '1' : '0');
+    } catch (_) { /* ignore */ }
+    syncVentilationButtonLabel();
+    var okMsg = (data && data.detail) ? String(data.detail) : (turningOn ? 'Ventilation on' : 'Ventilation off');
+    fireAlert('ok', 'Ventilation', okMsg, 5000);
   } catch (e) {
     const m = e && e.message ? String(e.message) : String(e);
     fireAlert('danger', 'Ventilation', m, 8000);
