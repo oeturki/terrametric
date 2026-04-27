@@ -61,7 +61,7 @@ def take_photo(reason, group_id):
     try:
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         filename = f"group_{group_id}_{reason}_{timestamp}.jpg"
-        filepath = f"/home/pi/Desktop/{filename}" # figure out fle path 
+        filepath = f"/home/pi/Desktop/{filename}" 
         
         camera.start_preview()
         sleep(2) #light adjustment timing 
@@ -132,8 +132,7 @@ def apply_controls(sensors, controls):
     humidity_high_t = humidity_max + humidity_warn
     humidity_low_t = humidity_min - humidity_warn
 
-    #motion -- to do
-
+    #photo logic 
     photo_needed = False
     photo_reason = ""
 
@@ -156,7 +155,7 @@ def apply_controls(sensors, controls):
 
     #logic to actually take the pic based on the above
     if photo_needed:
-        if photo_reason == "motion_detected" or (now - last_photo_time > 30):
+        if photo_reason == "motion_detected"  or photo_reason == "sensor_warning" or (now - last_photo_time > 30):
             if take_photo(photo_reason, group_id):
                 last_photo_time = now
 
