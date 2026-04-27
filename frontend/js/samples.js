@@ -532,10 +532,9 @@ async function backfillDummyHistory() {
 }
 
 async function stopSampleRecording() {
-  if (!activeRecordingSession || typeof fetch === 'undefined') return;
+  if (!activeRecordingSession || typeof apiPostNoBody !== 'function') return;
   try {
-    const res = await fetch(API_BASE + '/api/sessions/' + activeRecordingSession.id + '/stop', { method: 'POST' });
-    if (!res.ok) throw new Error('http');
+    await apiPostNoBody('/api/sessions/' + activeRecordingSession.id + '/stop');
     fireAlert('ok', 'Recording stopped', 'Stored readings stay linked to this sample for analysis.', 4000);
     await refreshActiveRecording();
   } catch (e) {

@@ -11,10 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from api import (
+    admin,
     telemetry, alerts, control, camera, auth, plants, sessions, reports, anomalies, devices,
     dummy,
 )
-from database import Base, engine, run_sqlite_migrations
+from database import Base, bootstrap_auth, engine, run_sqlite_migrations
 from services.dummy_stream import supervisor as stream_supervisor
 
 # Import models so SQLAlchemy registers all tables on Base.metadata
@@ -27,6 +28,7 @@ async def lifespan(app: FastAPI):
 
     Base.metadata.create_all(bind=engine)
     run_sqlite_migrations(engine)
+    bootstrap_auth(engine)
     # Hand the supervisor the loop so sync API handlers running in worker
     # threads can still create/cancel asyncio tasks safely.
     stream_supervisor.bind_loop(_asyncio.get_running_loop())
@@ -55,6 +57,7 @@ app.add_middleware(
 )
 
 app.include_router(anomalies.router,  prefix="/api/anomalies",  tags=["Anomaly Detection"])
+app.include_router(admin.router,      prefix="/api/admin",      tags=["Admin"])
 app.include_router(auth.router,       prefix="/api/auth",       tags=["Authentication"])
 app.include_router(telemetry.router,  prefix="/api/telemetry",  tags=["Telemetry"])
 app.include_router(alerts.router,     prefix="/api/alerts",     tags=["Alerts"])

@@ -14,7 +14,10 @@ import os
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+
+from deps.auth import get_current_user
+from models.user import User
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -93,6 +96,7 @@ def list_anomalies(
     anomaly_type: Optional[str] = Query(None),
     variable: Optional[str] = Query(None),
     severity: Optional[str] = Query(None),
+    _: User = Depends(get_current_user),
 ):
     """
     GET /api/anomalies
@@ -115,7 +119,7 @@ def list_anomalies(
 
 
 @router.get("/summary/{session_id}")
-def anomaly_summary(session_id: int):
+def anomaly_summary(session_id: int, _: User = Depends(get_current_user)):
     """
     GET /api/anomalies/summary/{session_id}
     Returns anomaly summary for a specific session.
@@ -132,6 +136,7 @@ def simulate_anomalies(
                     "level_shift, correlation, all",
     ),
     duration_min: int = Query(30, description="Duration of simulated data in minutes"),
+    _: User = Depends(get_current_user),
 ):
     """
     POST /api/anomalies/simulate?scenario=drift
@@ -217,7 +222,7 @@ def simulate_anomalies(
 
 
 @router.delete("/clear")
-def clear_anomalies():
+def clear_anomalies(_: User = Depends(get_current_user)):
     """Clear the in-memory event store."""
     global _event_store
     _event_store = []

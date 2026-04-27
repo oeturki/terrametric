@@ -1,11 +1,35 @@
 """
-FR6 - Authentication request/response schemas.
+Auth request/response shapes.
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 
 
-# TODO: UserRegister - username, email, password
-# TODO: UserLogin - username, password
-# TODO: UserResponse - id, username, email, created_at
-# TODO: Token - access_token: str, token_type: str
+class RegisterIn(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=6, max_length=128)
+
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    is_admin: bool
+
+    class Config:
+        from_attributes = True
+
+
+class RegisterAdminIn(RegisterIn):
+    """Same as register plus a shared secret when ``ADMIN_REGISTRATION_SECRET`` is set."""
+
+    admin_secret: str = ""

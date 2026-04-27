@@ -75,3 +75,55 @@ def run_sqlite_migrations(engine) -> None:
                     text("INSERT INTO plant_control (plant_id, profile_json) VALUES (:id, :j)"),
                     {"id": pid, "j": dflt},
                 )
+
+        # Plants: per-user ownership (nullable until bootstrap_auth fills legacy owner)
+        _add_col_if_missing(conn, "plants", "owner_id", "owner_id INTEGER")
+
+
+def bootstrap_auth(engine) -> None:
+    """
+    Ensure at least one user exists for FK targets; backfill plant.owner_id and
+    orphan recording session started_by. Safe to call on every startup (idempotent).
+    """
+    from sqlalchemy.orm import sessionmaker
+
+    from config import settings
+    from models.plant import Plant
+    from models.session import RecordingSession
+    from models.user import User
+    from services.auth_service import create_user, hash_password
+
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    db = SessionLocal()
+    try:
+        n = db.query(User).count()
+        if n == 0 and settings.TERRA_BOOTSTRAP_DEMO_USER:
+            create_user(
+                db,
+                settings.TERRA_DEMO_EMAIL,
+                settings.TERRA_DEMO_PASSWORD,
+                is_admin=False,
+            )
+        elif n == 0:
+            # Minimal user row so plants can reference owner_id=1
+            u = User(
+                email=settings.TERRA_DEMO_EMAIL,
+                password_hash=hash_password("!no_login_bootstrap"),
+                is_active=False,
+                is_admin=False,
+            )
+            db.add(u)
+            db.commit()
+
+        first = db.query(User).order_by(User.id.asc()).first()
+        if first:
+            db.query(Plant).filter(Plant.owner_id.is_(None)).update(
+                {Plant.owner_id: first.id}, synchronize_session=False
+            )
+            db.query(RecordingSession).filter(
+                RecordingSession.started_by.is_(None),
+                RecordingSession.ended_at.is_(None),
+            ).update({RecordingSession.started_by: first.id}, synchronize_session=False)
+            db.commit()
+    finally:
+        db.close()

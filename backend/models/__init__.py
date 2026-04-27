@@ -1,8 +1,9 @@
 """
 Import all SQLAlchemy models so Base.metadata knows every table before create_all().
-Order: plants/devices first, then recording_sessions, then telemetry (FKs to sessions).
+Order: users, plants/devices, recording_sessions, telemetry (FKs).
 """
 
+from models.user import User  # noqa: F401
 from models.plant import Plant  # noqa: F401
 from models.plant_control import PlantControl  # noqa: F401
 from models.device import Device  # noqa: F401

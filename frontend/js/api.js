@@ -5,13 +5,13 @@
 // ── Low-level fetch helpers ──────────────────
 
 async function apiFetch(path) {
-  const res = await fetch(API_BASE + path);
+  const res = await authFetch(API_BASE + path);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
 async function apiPost(path, body) {
-  const res = await fetch(API_BASE + path, {
+  const res = await authFetch(API_BASE + path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -20,8 +20,18 @@ async function apiPost(path, body) {
   return res.json();
 }
 
+async function apiPostNoBody(path) {
+  const res = await authFetch(API_BASE + path, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: '{}'
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 async function apiPut(path, body) {
-  const res = await fetch(API_BASE + path, {
+  const res = await authFetch(API_BASE + path, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -31,7 +41,7 @@ async function apiPut(path, body) {
 }
 
 async function apiDelete(path) {
-  const res = await fetch(API_BASE + path, { method: 'DELETE' });
+  const res = await authFetch(API_BASE + path, { method: 'DELETE' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   if (res.status === 204) return null;
   const text = await res.text();

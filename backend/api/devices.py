@@ -4,14 +4,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session as OrmSession
 
 from database import get_db
+from deps.auth import get_current_user
 from models.device import Device
+from models.user import User
 from schemas.device_schema import DeviceCreate, DeviceListResponse, DeviceOut, DeviceUpdate
 
 router = APIRouter()
 
 
 @router.get("", response_model=DeviceListResponse)
-def list_devices(db: OrmSession = Depends(get_db)):
+def list_devices(db: OrmSession = Depends(get_db), _: User = Depends(get_current_user)):
     rows = db.query(Device).order_by(Device.id).all()
     return DeviceListResponse(devices=[DeviceOut.model_validate(d) for d in rows])
 
@@ -26,7 +28,12 @@ def create_device(body: DeviceCreate, db: OrmSession = Depends(get_db)):
 
 
 @router.put("/{device_id}", response_model=DeviceOut)
-def update_device(device_id: int, body: DeviceUpdate, db: OrmSession = Depends(get_db)):
+def update_device(
+    device_id: int,
+    body: DeviceUpdate,
+    db: OrmSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
     d = db.query(Device).filter(Device.id == device_id).first()
     if not d:
         raise HTTPException(status_code=404, detail="Device not found")

@@ -222,7 +222,7 @@ async function runAnomalySimulation() {
   }
 
   try {
-    const res = await fetch(API_BASE + '/api/anomalies/simulate?scenario=' + scenario + '&duration_min=' + duration, { method: 'POST' });
+    const res = await authFetch(API_BASE + '/api/anomalies/simulate?scenario=' + scenario + '&duration_min=' + duration, { method: 'POST' });
     const d = await res.json();
     anomSimReadings = d.readings || [];
     anomalyLog = d.events || [];
@@ -244,7 +244,7 @@ async function runAnomalySimulation() {
 }
 
 function clearAnomalySimulation() {
-  fetch(API_BASE + '/api/anomalies/clear', { method: 'DELETE' }).catch(() => {});
+  authFetch(API_BASE + '/api/anomalies/clear', { method: 'DELETE' }).catch(() => {});
   anomalyLog = []; anomSimReadings = [];
   anomResetVisible();
   anomFocusTs = null;

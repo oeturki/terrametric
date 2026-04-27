@@ -45,6 +45,9 @@ const CONFIG = {
   // ── API endpoint paths ─────────────────────────────────────
   //    Only change these if your server uses different route names
   ENDPOINTS: {
+    login:     '/api/auth/login',
+    register:  '/api/auth/register',
+    me:        '/api/auth/me',
     health:    '/health',
     latest:    '/api/telemetry/latest',
     telemetry: '/api/telemetry/timeseries',
@@ -123,7 +126,7 @@ async function fetchControls() {
   localStorage.setItem(TERRAMETRIC_CONTROL_PLANT_KEY, plantId);
 
   try {
-    const res = await fetch(
+    const res = await authFetch(
       API_BASE + CONFIG.ENDPOINTS.control + "?plant_id=" + encodeURIComponent(plantId)
     );
     if (!res.ok) {
@@ -291,7 +294,7 @@ async function saveControls() {
   if (!validateControls(data)) return;
 
   try {
-    const res = await fetch(`${API_BASE}${CONFIG.ENDPOINTS.control}`, {
+    const res = await authFetch(`${API_BASE}${CONFIG.ENDPOINTS.control}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -325,7 +328,7 @@ async function resetControls() {
   }
 
   try {
-    const res = await fetch(`${API_BASE}/api/control/reset`, {
+    const res = await authFetch(`${API_BASE}/api/control/reset`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"

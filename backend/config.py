@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     # JWT auth
     SECRET_KEY: str = "CHANGE_ME_IN_PRODUCTION"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    JWT_ALGORITHM: str = "HS256"
+
+    # Demo: POST /api/auth/register-admin requires this body field ``admin_secret`` when set
+    ADMIN_REGISTRATION_SECRET: str = ""
+
+    # When the DB has zero users, create one demo account and attach migrated plants to it
+    TERRA_BOOTSTRAP_DEMO_USER: bool = True
+    TERRA_DEMO_EMAIL: str = "demo@example.com"
+    TERRA_DEMO_PASSWORD: str = "demo"
 
     class Config:
         env_file = ".env"

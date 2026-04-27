@@ -16,10 +16,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as OrmSession
 
 from database import get_db
+from deps.auth import get_current_user
 from models.audit_log import AuditLog
+from models.user import User
 from schemas.session_schema import ScenarioName
 from services import dummy_stream
-from services.plant_service import get_plant
+from services.plant_service import get_plant_for_owner
 
 router = APIRouter()
 
@@ -40,13 +42,17 @@ class BackfillResponse(BaseModel):
 
 
 @router.post("/backfill", response_model=BackfillResponse)
-def backfill(body: BackfillRequest, db: OrmSession = Depends(get_db)):
+def backfill(
+    body: BackfillRequest,
+    db: OrmSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """
     Generate ``hours`` of synthetic telemetry stamped to ``plant_id``.
     Rows are inserted in one bulk transaction; audit log captures the request
     so it's clear during analysis which rows came from a simulator.
     """
-    if get_plant(db, body.plant_id) is None:
+    if get_plant_for_owner(db, body.plant_id, user.id) is None:
         raise HTTPException(status_code=404, detail="Plant not found")
 
     rows = dummy_stream.backfill_history(
@@ -61,7 +67,7 @@ def backfill(body: BackfillRequest, db: OrmSession = Depends(get_db)):
             entity_type="plant",
             entity_id=body.plant_id,
             action="backfill_dummy",
-            user_id=None,
+            user_id=user.id,
             payload_json=json.dumps({
                 "rows": rows,
                 "scenario": body.scenario,

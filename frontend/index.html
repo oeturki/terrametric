@@ -38,6 +38,9 @@
   <div class="sidebar-footer">
     <span class="status-dot" id="connDot"></span>
     <span id="connLabel">CONNECTING…</span>
+    <div style="margin-top:10px;">
+      <button type="button" class="btn btn-ghost" style="width:100%;font-size:11px;padding:6px" onclick="if(typeof clearAccessToken==='function'){clearAccessToken();} location.href='login.html';">Sign out</button>
+    </div>
   </div>
 </aside>
 
@@ -568,6 +571,7 @@
 <!-- ══════════════════════════════════════
      JAVASCRIPT — load in this order
 ══════════════════════════════════════ -->
+<script src="js/auth.js"></script>
 <script src="js/config.js"></script>     <!-- ← Edit this to connect your system  -->
 <script src="js/alerts.js"></script>     <!-- Toasts, bell, warning banner         -->
 <script src="js/charts.js"></script>     <!-- Sensor graph drawing                 -->

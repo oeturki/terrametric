@@ -29,4 +29,5 @@ class Plant(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    created_by = Column(Integer, nullable=True)  # user id when auth is wired
+    created_by = Column(Integer, nullable=True)  # legacy mirror of owner
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)

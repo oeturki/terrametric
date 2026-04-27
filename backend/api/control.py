@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
+from deps.auth import get_current_user
+from models.user import User
 from schemas.control import (
     ControlProfilePayload,
     ControlResetBody,
@@ -16,13 +18,23 @@ from schemas.control import (
 )
 from services.default_control_profile import default_control_dict
 import services.plant_control_service as pc_svc
+import services.plant_service as plant_svc
 
 router = APIRouter()
 
 
+def _require_owner_plant(db: Session, plant_id: int, user_id: int):
+    if plant_svc.get_plant_for_owner(db, plant_id, user_id) is None:
+        raise HTTPException(status_code=404, detail="Plant not found")
+
+
 @router.get("")
-def get_control(plant_id: int = Query(..., ge=1, description="Sample / plant id"), db: Session = Depends(get_db)):
-    pc_svc.get_plant_id_or_404(db, plant_id)
+def get_control(
+    plant_id: int = Query(..., ge=1, description="Sample / plant id"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _require_owner_plant(db, plant_id, user.id)
     d = pc_svc.get_control_dict_for_plant(db, plant_id)
     if d is None:
         d = pc_svc.reset_to_defaults(db, plant_id)
@@ -30,8 +42,8 @@ def get_control(plant_id: int = Query(..., ge=1, description="Sample / plant id"
 
 
 @router.post("")
-def save_control(body: ControlProfilePayload, db: Session = Depends(get_db)):
-    pc_svc.get_plant_id_or_404(db, body.plant_id)
+def save_control(body: ControlProfilePayload, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _require_owner_plant(db, body.plant_id, user.id)
     current = pc_svc.get_control_dict_for_plant(db, body.plant_id) or default_control_dict()
     merged = merge_profile_from_payload(current, body)
     try:
@@ -43,7 +55,7 @@ def save_control(body: ControlProfilePayload, db: Session = Depends(get_db)):
 
 
 @router.post("/reset")
-def reset_control(body: ControlResetBody, db: Session = Depends(get_db)):
-    pc_svc.get_plant_id_or_404(db, body.plant_id)
+def reset_control(body: ControlResetBody, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _require_owner_plant(db, body.plant_id, user.id)
     saved = pc_svc.reset_to_defaults(db, body.plant_id)
     return {"status": "reset", "group": str(body.plant_id), "plant_id": body.plant_id, "controls": saved}

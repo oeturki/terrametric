@@ -3,6 +3,15 @@
 //           utility helpers, and boot sequence
 // ─────────────────────────────────────────────
 
+(function requireLoginShell() {
+  try {
+    if (!document.getElementById('page-home')) return;
+    if (typeof getAccessToken === 'function' && !getAccessToken()) {
+      window.location.replace('login.html');
+    }
+  } catch (_) { /* non-browser */ }
+})();
+
 let isConnected = false;
 
 // ── Page navigation ──────────────────────────

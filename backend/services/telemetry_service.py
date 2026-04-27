@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from models.device import Device
 from models.reading import Telemetry
-from services.recording_session_service import get_open_session_singleton
+from services.recording_session_service import get_any_open_session, get_open_session_for_plant
 
 
 def store_telemetry_row(
@@ -43,13 +43,21 @@ def store_telemetry_row(
     bt_name: Optional[str] = None,
     plant_id: Optional[int] = None,
 ) -> Telemetry:
-    """Attach to the single open recording session if one exists; optionally touch Device last_seen.
+    """Attach to an open recording session for the given plant when possible.
 
-    If there is *no* open session, an optional ``plant_id`` (e.g. from ingest) still tags the row
-    and enables per-plant threshold checks against that sample's saved control profile.
+    If a ``plant_id`` is provided, prefer the open session for that plant so multiple users
+    can record different samples concurrently. If none, fall back to the most recently started
+    open session (legacy Pi without ``plant_id``).
+
+    If there is *no* open session, an optional ``plant_id`` from ingest still tags the row for
+    threshold evaluation against that sample's control profile (backfill / bench mode).
     """
     now = datetime.utcnow()
-    open_sess = get_open_session_singleton(db)
+    open_sess = None
+    if plant_id is not None:
+        open_sess = get_open_session_for_plant(db, plant_id)
+    if open_sess is None:
+        open_sess = get_any_open_session(db)
     sid = open_sess.id if open_sess else None
     pid = open_sess.plant_id if open_sess else None
     if pid is None and plant_id is not None:
@@ -87,6 +95,29 @@ def store_telemetry_row(
 
 def get_latest_reading(db: Session) -> Optional[Dict[str, Any]]:
     row = db.query(Telemetry).order_by(Telemetry.timestamp.desc()).first()
+    if not row:
+        return None
+    return {
+        "temperature": row.temperature,
+        "humidity": row.humidity,
+        "light": row.light,
+        "height": row.plant_height,
+        "motion": row.movement,
+        "distance": row.distance,
+        "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+        "session_id": row.session_id,
+    }
+
+
+def get_latest_reading_for_plant_ids(db: Session, plant_ids: List[int]) -> Optional[Dict[str, Any]]:
+    if not plant_ids:
+        return None
+    row = (
+        db.query(Telemetry)
+        .filter(Telemetry.plant_id.in_(plant_ids))
+        .order_by(Telemetry.timestamp.desc())
+        .first()
+    )
     if not row:
         return None
     return {
