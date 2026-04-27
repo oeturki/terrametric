@@ -120,7 +120,7 @@ def evaluate_telemetry_row(
         _emit(
             "temperature",
             not ok,
-            f"Temperature out of range ({cap})",
+            f"Temperature out of range for {cap}",
             f"Sample {cap}. Reading {t:.1f} °C is outside the saved desired band for this sample "
             f"({b.get('min', '?')}-{b.get('max', '?')}) °C. "
             f"If this is unexpected, check Control Variables and that recording / TM_BRIDGE_PLANT_ID matches this id.",
@@ -134,7 +134,7 @@ def evaluate_telemetry_row(
         _emit(
             "humidity",
             not ok,
-            f"Humidity out of range ({cap})",
+            f"Humidity out of range for {cap}",
             f"Sample {cap}. Reading {h:.1f}% is outside the saved desired band "
             f"({b.get('min', '?')}-{b.get('max', '?')}).",
         )
@@ -147,7 +147,7 @@ def evaluate_telemetry_row(
         _emit(
             "light",
             not ok,
-            f"Light out of range ({cap})",
+            f"Light out of range for {cap}",
             f"Sample {cap}. Reading {light:.0f} lux is outside the saved desired band "
             f"({b.get('min', '?')}-{b.get('max', '?')}).",
         )
@@ -160,7 +160,7 @@ def evaluate_telemetry_row(
         _emit(
             "motion",
             not ok,
-            f"Motion signal out of range ({cap})",
+            f"Motion signal out of range for {cap}",
             f"Sample {cap}. PIR value maps to {v:.0f}, outside saved bounds "
             f"({b.get('min', '?')}-{b.get('max', '?')}).",
         )
@@ -173,7 +173,7 @@ def evaluate_telemetry_row(
         _emit(
             "height",
             not ok,
-            f"Height / distance out of range ({cap})",
+            f"Height / distance out of range for {cap}",
             f"Sample {cap}. Value {hgt:.1f} cm is outside the saved desired band "
             f"({b.get('min', '?')}-{b.get('max', '?')}).",
         )
