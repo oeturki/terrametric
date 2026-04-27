@@ -66,7 +66,7 @@ def start_session(
     s = RecordingSession(
         plant_id=plant_id,
         device_id=device_id,
-        started_at=datetime.utcnow(),
+        started_at=datetime.now(timezone.utc),
         ended_at=None,
         setpoint_temp=setpoint_temp,
         setpoint_humidity=setpoint_humidity,
@@ -107,7 +107,7 @@ def stop_session(db: Session, session_id: int, user_id: Optional[int] = None) ->
         p = db.query(Plant).filter(Plant.id == s.plant_id).first()
         if p is not None and p.owner_id is not None and p.owner_id != user_id:
             return None
-    s.ended_at = datetime.utcnow()
+    s.ended_at = datetime.now(timezone.utc)
     db.add(
         AuditLog(
             entity_type="recording_session",
