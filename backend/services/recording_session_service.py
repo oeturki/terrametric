@@ -45,7 +45,7 @@ def close_open_sessions_for_user(db: Session, user_id: Optional[int]) -> int:
 
 def close_open_sessions_for_plant(db: Session, plant_id: int) -> int:
     now = datetime.now(timezone.utc)
-    q = db.query(RecordingSession).fliter(
+    q = db.query(RecordingSession).filter(
         RecordingSession.plant_id == plant_id,
         RecordingSession.ended_at.is_(None)
     )
@@ -78,8 +78,7 @@ def start_session(
     if user_id is not None and p.owner_id is not None and p.owner_id != user_id:
         raise ValueError("plant_forbidden")
     close_open_sessions_for_plant(db, plant_id)
-    #close_open_sessions_for_user(db, user_id)
-    #close_all_open_sessions(db)
+
     s = RecordingSession(
         plant_id=plant_id,
         device_id=device_id,
