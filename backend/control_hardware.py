@@ -12,21 +12,21 @@ from services.recording_session_service import get_active_sessions
 
 CONTROL_API_BASE = "http://127.0.0.1:8000/api/control"
 
-controls_cache = {}
-last_fetch_time = {}
+controls_cache = {} 
+last_fetch_time = {} 
 FETCH_INTERVAL = 10  # seconds
 
-last_photo_time = 0
-camera = None  # Lazy initialization - only create when needed
+last_photo_time = 0 #stores last time the camera took a photo to ensure photo is taken at the requested intervals
+camera = None  # initalization - only create when needed
 
-def _get_camera():
-    """Lazy initialize camera on first use"""
-    global camera
+def get_camera():
+    """initialize camera on first use"""
+    #global camera
     if camera is None:
         try:
             camera = PiCamera()
         except Exception as e:
-            print(f"⚠ Failed to initialize camera: {e}")
+            print(f"Error: Failed to initialize camera - {e}")
     return camera
 
 def get_controls(plant_id: int):
@@ -46,14 +46,14 @@ def get_controls(plant_id: int):
                 controls_cache[plant_id] = res.json()
                 last_fetch_time[plant_id] = now
         except Exception as e:
-            print("Failed to fetch controls for plant_id=", plant_id, e)
+            print("Error: Failed to fetch controls for plant_id=", plant_id, e)
 
     return controls_cache[plant_id]
 
-# takes the picture and saves it to the desktop -- need to add camera showing up to gallery page
+#takes the picture and saves it to the desktop -- need to add camera showing up to gallery page
 def take_photo(reason, plant_id):
     try:
-        cam = _get_camera()
+        cam = get_camera()
         if cam is None:
             return False
             
@@ -62,12 +62,12 @@ def take_photo(reason, plant_id):
         filepath = f"/home/pi/Desktop/{filename}"
         
         cam.start_preview()
-        sleep(2)  # light adjustment timing 
+        sleep(2)  #light adjustment timing 
         cam.capture(filepath)
         cam.stop_preview()
         return True
-    except Exception as e:  # error trapping - display message if camera capture fails
-        print(f"⚠ Camera failed for plant_id={plant_id}: {e}")
+    except Exception as e:  #error trapping - display message if camera capture fails
+        print(f"Error: Camera failed for plant_id={plant_id}: {e}")
         return False
 
 def read_sensors(plant_id: int):
@@ -86,7 +86,7 @@ def read_sensors(plant_id: int):
                 "motion": latest.get("motion")
             }
     except Exception as e:
-        print(f"⚠ Failed to read sensors for plant_id={plant_id}: {e}")
+        print(f"Error: Failed to read sensors for plant_id={plant_id}: {e}")
 
     # Return dict with None values if reading failed
     return {
@@ -113,18 +113,21 @@ def apply_controls(sensors, controls, plant_id):
     if temp is None or light is None or height is None or humidity is None or motion is None:
         return
 
+    #temperature threshold calculations
     temp_min = controls["temperature"]["min"]
     temp_max = controls["temperature"]["max"]
     temp_warn = controls["temperature"]["warn"]
     temp_high_t = temp_max + temp_warn
     temp_low_t  = temp_min - temp_warn
     
+    #light threshold calculations
     light_min = controls["light"]["min"]
     light_max = controls["light"]["max"]
     light_warn = controls["light"]["warn"]
     light_high_t = light_max + light_warn
     light_low_t = light_min - light_warn
     
+    #height threshold calculations
     height_min = controls["height"]["min"]
     height_max = controls["height"]["max"]
     height_warn = controls["height"]["warn"]
@@ -138,29 +141,28 @@ def apply_controls(sensors, controls, plant_id):
     humidity_high_t = humidity_max + humidity_warn
     humidity_low_t = humidity_min - humidity_warn
 
-    photo_needed = False
+    photo_needed = False 
     photo_reason = ""
 
-    # takes pic for motion detected
+    #takes pic for motion detected
     if motion:
         photo_needed = True
         photo_reason = "motion_detected"
 
-    # takes pic based on user preference or 600s if nothing is chosen
+    #takes pic based on user preference or 600s if nothing is chosen
     interval = controls.get("camera", {}).get("interval", 600)
     if now - last_photo_time > interval:
         photo_needed = True
         photo_reason = "scheduled_interval"
 
-    # takes pic if warning/alert happens
-    if (temp > temp_high_t or temp < temp_low_t or 
-        humidity > humidity_high_t or humidity < humidity_low_t):
+    #takes pic if threshold warning happens
+    if (temp > temp_high_t or temp < temp_low_t or light > light_high_t or light < light_low_t or height > height_high_t or height < height_low_t or humidity > humidity_high_t or humidity < humidity_low_t):
         photo_needed = True
         photo_reason = "sensor_warning"
 
-    # logic to actually take the pic based on the above
+    #logic to actually take the pic based on the above
     if photo_needed:
-        if photo_reason == "motion_detected" or (now - last_photo_time > 30):
+        if photo_reason == "motion_detected" or photo_reason == "scheduled_interval" or (now - last_photo_time > 30):
             if take_photo(photo_reason, plant_id):
                 last_photo_time = now
 
@@ -171,20 +173,20 @@ def apply_controls(sensors, controls, plant_id):
         # Fan OFF - connect to fan/motor  
         pass
 
-# upload to the webpage gallery -- to do
-def upload_image(filepath, reason, plant_id):
-    upload_url = "http://127.0.0.1:8000/api/gallery"  # gallery page
-    try:
-        with open(filepath, 'rb') as f:
-            files = {'image': f}
-            data = {'reason': reason, 'plant_id': plant_id}
-            response = requests.post(upload_url, files=files, data=data, timeout=5)
-            if response.ok:
-                pass
-            else:
-                print(f"Upload failed: {response.status_code}")
-    except Exception as e:
-        print(f"⚠ Upload error: {e}")
+# # upload to the webpage gallery -- to implent if time permits, photos are currently being saved to the researcher's device. 
+# def upload_image(filepath, reason, plant_id):
+#     upload_url = "http://127.0.0.1:8000/api/gallery"  # gallery page
+#     try:
+#         with open(filepath, 'rb') as f:
+#             files = {'image': f}
+#             data = {'reason': reason, 'plant_id': plant_id}
+#             response = requests.post(upload_url, files=files, data=data, timeout=5)
+#             if response.ok:
+#                 pass
+#             else:
+#                 print(f"Upload failed: {response.status_code}")
+#     except Exception as e:
+#         print(f"Error: Upload error: {e}")
 
 def get_active_plant_ids():
     try:
@@ -194,7 +196,7 @@ def get_active_plant_ids():
         db.close()
         return plant_ids
     except Exception as e:
-        print(f"⚠ Failed to read active sessions: {e}")
+        print(f"Error: Failed to read active sessions - {e}")
         return []
 
 
@@ -217,7 +219,7 @@ def main_loop():
     except KeyboardInterrupt:
         print("Stopping...")
     finally:
-        cam = _get_camera()
+        cam = get_camera()
         if cam is not None:
             cam.close()
 
