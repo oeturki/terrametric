@@ -1,10 +1,8 @@
-# Run on the Raspberry Pi (Bookworm) alongside apt packages:
-#   sudo apt install -y python3-picamera2 python3-pil python3-gpiozero pigpio
+# Run on the Raspberry Pi (Bookworm) alongside apt:
+#   sudo apt install -y python3-picamera2 python3-pil pigpio
 #   sudo pigpiod
-#
 #   pip install -r requirements-hardware-agent.txt
-#   (includes `pigpio` — Python client for pigpiod, needed for PWM fallback on Pi 5)
-#
+# Pi GPIO ventilation uses the pigpio *Python* client (PyPI) + pigpiod only — not gpiozero.
 fastapi>=0.100.0
 uvicorn[standard]>=0.22.0
 python-multipart

@@ -5,24 +5,17 @@ Reachability from the laptop: same WiFi or USB Ethernet gadget. From the laptop 
   ping <pi-ip>
   curl -s http://<pi-ip>:8765/health
 
-Run (on the Pi):
+Run on the Pi:
   export DEVICE_KEY='your-shared-secret'
-  # --- Ventilation: Pi GPIO (default) ---
-  # export SERVO_PIN=5
-  # export USE_PIGPIO=0
-  # --- Ventilation: Arduino on USB (opt-in; servo on Arduino D6) ---
-  # export TERRA_USE_ARDUINO_SERVO=1
-  # export TERRA_ARDUINO_PORT=/dev/ttyACM0
-  # --- Or Arduino only on Bluetooth (same link as arduino_bridge.py): ---
-  # export TERRA_USE_ARDUINO_SERVO=1
-  # export TERRA_ARDUINO_CMD_URL=http://127.0.0.1:18765/servo
-  # On the Pi: TM_BRIDGE_CMD_SERVER=1 when running arduino_bridge.py
-  # pip install pyserial
-  uvicorn hardware_agent:app --host 0.0.0.0 --port 8765
+  For Pi GPIO ventilation: export SERVO_PIN=12; sudo pigpiod  (uses pigpio API, not gpiozero)
+  For Arduino over BT: export TERRA_ARDUINO_CMD_URL=http://127.0.0.1:18765/servo
+  To force Pi GPIO even if TERRA_ARDUINO_CMD_URL is set: export TERRA_USE_ARDUINO_SERVO=0
+  uvicorn hardware_agent:app --host 0.0.0.0 --port 8765 --app-dir pi
 
 Install (Pi):
-  sudo apt install -y python3-picamera2 python3-pil python3-gpiozero
-  pip install fastapi "uvicorn[standard]" python-multipart pyserial
+  sudo apt install -y python3-picamera2 python3-pil pigpio
+  pip install -r pi/requirements-hardware-agent.txt
+  sudo pigpiod
 """
 
 from __future__ import annotations
@@ -39,13 +32,22 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 DEVICE_KEY = os.environ.get("DEVICE_KEY", "").strip()
-# BCM pin for servo *signal* (default 5 for typical "D5" / GPIO5 wiring; override if your HAT maps D5 elsewhere).
-SERVO_PIN = int(os.environ.get("SERVO_PIN", "5"))
-USE_PIGPIO = os.environ.get("USE_PIGPIO", "").strip().lower() in ("1", "true", "yes")
-# Opt-in: drive servo on Arduino (USB serial S###) instead of Pi GPIO — no GPIO PWM on the Pi in this mode.
-USE_ARDUINO_SERVO = os.environ.get("TERRA_USE_ARDUINO_SERVO", "").strip().lower() in ("1", "true", "yes")
-# When set, servo lines are POSTed here (e.g. arduino_bridge BT cmd server) instead of opening USB serial.
-ARDUINO_CMD_URL = (os.environ.get("TERRA_ARDUINO_CMD_URL") or "").strip()
+# BCM pin for servo signal to pigpiod. 12/18 are common; avoid 5 on Pi 5.
+SERVO_PIN = int(os.environ.get("SERVO_PIN", "12"))
+# Pulse width in µs (edit if your horn range is off)
+SERVO_PULSE_US_MIN = int(os.environ.get("SERVO_PULSE_US_MIN", "500"))
+SERVO_PULSE_US_MAX = int(os.environ.get("SERVO_PULSE_US_MAX", "2500"))
+# pigpiod host (default loopback; set if daemon runs elsewhere)
+PIGPIO_HOST = (os.environ.get("PIGPIO_HOST") or "localhost").strip() or "localhost"
+# Opt-in: drive servo on Arduino. Auto-on if TERRA_ARDUINO_CMD_URL is set (BT bridge).
+# Set TERRA_USE_ARDUINO_SERVO=0 to force Pi GPIO even when the URL is in the environment.
+_ard_env = os.environ.get("TERRA_USE_ARDUINO_SERVO", "").strip().lower()
+_ard_url = (os.environ.get("TERRA_ARDUINO_CMD_URL") or "").strip()
+if _ard_env in ("0", "false", "no"):
+    USE_ARDUINO_SERVO = False
+else:
+    USE_ARDUINO_SERVO = _ard_env in ("1", "true", "yes") or bool(_ard_url)
+ARDUINO_CMD_URL = _ard_url
 ARDUINO_PORT = (os.environ.get("TERRA_ARDUINO_PORT") or "/dev/ttyACM0").strip()
 ARDUINO_BAUD = int(os.environ.get("TERRA_ARDUINO_BAUD", "9600"))
 
@@ -132,7 +134,7 @@ def _get_arduino_serial():
             detail=(
                 f"Arduino USB not available at {ARDUINO_PORT} ({e!s}). "
                 "Plug the Arduino into the Pi, check dmesg for ttyACM* / ttyUSB*, "
-                "or use TERRA_ARDUINO_CMD_URL (arduino_bridge on Bluetooth) or set TERRA_USE_ARDUINO_SERVO=0 for Pi GPIO only."
+                "or set TERRA_ARDUINO_CMD_URL (BT bridge) or leave TERRA_USE_ARDUINO_SERVO unset and use Pi GPIO (pigpiod) only."
             ),
         ) from e
 
@@ -205,132 +207,100 @@ def _apply_ventilation_arduino(body: VentilationBody) -> tuple[float, str]:
     return 90.0, f"Arduino servo 90° ({path})"
 
 
-_servo = None
-_pin_factory_tried: Optional[str] = None
+_pig: Optional[object] = None
 
 
-def _set_pigpio_factory() -> None:
-    """Software PWM via pigpiod — allows more pins if `sudo pigpiod` is running."""
-    from gpiozero import Device
-    from gpiozero.pins.pigpio import PiGPIOFactory
-
-    Device.pin_factory = PiGPIOFactory()
-
-
-def _make_angular_servo():
-    from gpiozero import AngularServo
-
-    return AngularServo(SERVO_PIN, min_angle=0, max_angle=180)
+def _deg_to_pulse_us(deg: float) -> int:
+    d = max(0.0, min(180.0, float(deg)))
+    return int(
+        SERVO_PULSE_US_MIN
+        + (SERVO_PULSE_US_MAX - SERVO_PULSE_US_MIN) * (d / 180.0)
+    )
 
 
-def _ensure_servo() -> "object":
-    global _servo, _pin_factory_tried
-    if _servo is not None:
-        return _servo
+def _get_pigpio() -> "object":
+    """Connected pigpio.pi() — Pi GPIO ventilation uses this only (no gpiozero)."""
+    global _pig
+    if _pig is not None:
+        try:
+            if getattr(_pig, "connected", True):  # type: ignore[union-attr]
+                return _pig
+        except Exception:
+            _pig = None
     try:
-        from gpiozero import AngularServo  # noqa: F401
+        import pigpio  # type: ignore[import-not-found]
     except ImportError as e:
         raise HTTPException(
-            status_code=503,
-            detail="gpiozero not available. On the Pi: sudo apt install -y python3-gpiozero",
+            503,
+            detail="`pigpio` Python package not installed. In the agent venv: pip install pigpio",
         ) from e
-
-    if USE_PIGPIO:
-        try:
-            _set_pigpio_factory()
-            _pin_factory_tried = "pigpio"
-        except Exception as e:
-            raise HTTPException(
-                status_code=503,
-                detail=f"USE_PIGPIO=1 but pigpio failed: {e!s}. Run: sudo apt install -y pigpio && sudo pigpiod",
-            ) from e
-        try:
-            _servo = _make_angular_servo()
-        except Exception as e:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Servo on GPIO{SERVO_PIN} failed (pigpio): {e!s}",
-            ) from e
-        return _servo
-
-    try:
-        _servo = _make_angular_servo()
-        _pin_factory_tried = "default"
-    except Exception as e0:
-        err0 = str(e0)
-        if "PWM" not in err0 and "pwm" not in err0.lower():
-            raise HTTPException(
-                status_code=503,
-                detail=f"Could not open servo on GPIO{SERVO_PIN}: {err0}",
-            ) from e0
-        try:
-            _set_pigpio_factory()
-            _pin_factory_tried = "pigpio (auto)"
-            _servo = _make_angular_servo()
-        except Exception as e1:
-            extra = (
-                " In the venv run: pip install pigpio. Also: sudo apt install -y pigpio && sudo pigpiod (daemon must be running)."
-            )
-            if "pigpio" in str(e1).lower() and "module" in str(e1).lower():
-                extra = " Install the *Python* client: `pip install pigpio` (same venv as uvicorn), then `sudo apt install -y pigpio && sudo pigpiod`."
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    f"PWM not available on GPIO{SERVO_PIN} ({err0}). "
-                    f"Option A: move servo signal to BCM 12 or 13, `export SERVO_PIN=12` (or 13), restart the agent. "
-                    f"Option B: use pigpiod for software PWM on more pins —{extra} Auto-fallback error: {e1!s}"
-                ),
-            ) from e0
-
-    return _servo
+    pi = pigpio.pi(PIGPIO_HOST)  # type: ignore[call-arg]
+    if not pi.connected:  # type: ignore[union-attr]
+        raise HTTPException(
+            503,
+            detail=(
+                f"pigpiod is not running or not reachable at {PIGPIO_HOST!r} (port 8888). "
+                "On the Pi: sudo apt install -y pigpio && sudo pigpiod. "
+                "Or use the Arduino: export TERRA_ARDUINO_CMD_URL=... and run arduino_bridge with TM_BRIDGE_CMD_SERVER=1."
+            ),
+        )
+    _pig = pi
+    return pi
 
 
-def _spin_sweep(srv: object) -> tuple[float, str]:
-    """
-    Standard positional servos: step through angles so the horn visibly sweeps
-    (not a continuous 'motor spin'—that needs a different servo type and API).
-    """
+def _pi_gpio_set_angle(deg: float) -> None:
+    pi = _get_pigpio()
+    w = _deg_to_pulse_us(deg)
+    # pigpio handles 50Hz servo mode on the pin
+    pi.set_servo_pulsewidth(SERVO_PIN, w)  # type: ignore[union-attr]
+    time.sleep(0.02)
+
+
+def _pi_gpio_servo_off() -> None:
+    """Release pin (0 = no pulses)."""
+    pi = _get_pigpio()
+    pi.set_servo_pulsewidth(SERVO_PIN, 0)  # type: ignore[union-attr]
+    time.sleep(0.02)
+
+
+def _pi_gpio_spin_sweep() -> tuple[float, str]:
     pattern = [0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 160, 140, 120, 100, 80, 60, 40, 20, 90]
     step_s = 0.045
     for a in pattern:
-        srv.angle = float(a)  # type: ignore[union-attr]
+        _pi_gpio_set_angle(float(a))
         time.sleep(step_s)
-    return 90.0, f"Sweep on GPIO{SERVO_PIN} ({len(pattern)} steps), rest 90° ({_pin_factory_tried or 'default'})"
+    return 90.0, f"Pi pigpio sweep on GPIO{SERVO_PIN} ({len(pattern)} steps), rest 90°"
+
+
+def _apply_ventilation_pi_pigpio(body: VentilationBody) -> tuple[float, str]:
+    if body.angle is not None:
+        ang = max(0.0, min(180.0, float(body.angle)))
+        _pi_gpio_set_angle(ang)
+        return ang, f"Pi pigpio GPIO{SERVO_PIN} → {ang}°"
+    if body.on is False:
+        _pi_gpio_servo_off()
+        return 0.0, f"Pi pigpio GPIO{SERVO_PIN} servo off (pulse 0)"
+    if body.on is True and body.spin:
+        return _pi_gpio_spin_sweep()
+    if body.on is True and not body.spin:
+        _pi_gpio_set_angle(90.0)
+        return 90.0, f"Pi pigpio GPIO{SERVO_PIN} 90° (no sweep)"
+    if body.spin:
+        return _pi_gpio_spin_sweep()
+    _pi_gpio_set_angle(90.0)
+    return 90.0, f"Pi pigpio GPIO{SERVO_PIN} 90°"
 
 
 def _apply_ventilation(body: VentilationBody) -> tuple[float, str]:
     if USE_ARDUINO_SERVO:
         return _apply_ventilation_arduino(body)
-    srv = _ensure_servo()
-
-    if body.angle is not None:
-        ang = max(0.0, min(180.0, float(body.angle)))
-        srv.angle = ang
-        return ang, f"Servo on GPIO{SERVO_PIN} set to {ang}°"
-
-    if body.on is False:
-        srv.angle = 0.0
-        return 0.0, f"Servo on GPIO{SERVO_PIN} set to 0°"
-
-    # on is True or omitted (treat as vent on)
-    if body.on is True and body.spin:
-        return _spin_sweep(srv)
-    if body.on is True and not body.spin:
-        srv.angle = 90.0
-        return 90.0, f"Servo on GPIO{SERVO_PIN} set to 90° (no sweep)"
-
-    # Empty body or {}: same as a spin for a satisfying click
-    if body.spin:
-        return _spin_sweep(srv)
-    srv.angle = 90.0
-    return 90.0, f"Servo on GPIO{SERVO_PIN} set to 90°"
+    return _apply_ventilation_pi_pigpio(body)
 
 
 @app.get("/health")
 def health():
     """Public: use from the laptop to verify `ping` + TCP (no key required)."""
     m: dict = {"status": "ok", "service": "terrametric_hardware_agent"}
-    m["ventilation"] = "pi_gpio"
     if USE_ARDUINO_SERVO:
         if ARDUINO_CMD_URL:
             m["ventilation"] = "arduino_bluetooth"
@@ -338,6 +308,10 @@ def health():
         else:
             m["ventilation"] = "arduino_usb"
             m["arduino_port"] = ARDUINO_PORT
+    else:
+        m["ventilation"] = "pi_pigpio"
+        m["servo_bcm"] = SERVO_PIN
+        m["pigpio_host"] = PIGPIO_HOST
     return m
 
 
