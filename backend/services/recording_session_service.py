@@ -43,7 +43,7 @@ def close_open_sessions_for_user(db: Session, user_id: Optional[int]) -> int:
         db.commit()
     return n
 
-def close_open_sessions_for_plant(db: Session, plant_id: int) --> int:
+def close_open_sessions_for_plant(db: Session, plant_id: int) -> int:
     now = datetime.now(timezone.utc)
     q = db.query(RecordingSession).fliter(
         RecordingSession.plant_id == plant_id,
