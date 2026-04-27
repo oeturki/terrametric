@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     JWT_ALGORITHM: str = "HS256"
 
+    # Proxy to the Pi hardware agent (see `pi/hardware_agent.py`). Set on the *laptop* Uvicorn host only.
+    HARDWARE_PI_BASE: str = ""  # e.g. http://192.168.1.42:8765
+    HARDWARE_PI_KEY: str = ""  # same as DEVICE_KEY on the Pi; never expose to the browser
+
     # Demo: POST /api/auth/register-admin requires this body field ``admin_secret`` when set
     ADMIN_REGISTRATION_SECRET: str = ""
 

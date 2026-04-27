@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from api import (
     admin,
     telemetry, alerts, control, camera, auth, plants, sessions, reports, anomalies, devices,
-    dummy,
+    dummy, hardware,
 )
 from database import Base, bootstrap_auth, engine, run_sqlite_migrations
 from services.dummy_stream import supervisor as stream_supervisor
@@ -27,8 +27,8 @@ async def lifespan(app: FastAPI):
     import asyncio as _asyncio
 
     Base.metadata.create_all(bind=engine)
-    run_sqlite_migrations(engine)
-    bootstrap_auth(engine)
+    run_sqlite_migrations(engine)  # idempotent; includes plant created_by backfill
+    bootstrap_auth(engine)  # restart API after pull so this + list_plants reclaim run
     # Hand the supervisor the loop so sync API handlers running in worker
     # threads can still create/cancel asyncio tasks safely.
     stream_supervisor.bind_loop(_asyncio.get_running_loop())
@@ -68,6 +68,7 @@ app.include_router(devices.router,    prefix="/api/devices",    tags=["Devices"]
 app.include_router(sessions.router,   prefix="/api/sessions",   tags=["Sessions"])
 app.include_router(reports.router,    prefix="/api/reports",     tags=["Reports"])
 app.include_router(dummy.router,      prefix="/api/dummy",       tags=["Dummy data"])
+app.include_router(hardware.router,  prefix="/api/hardware",    tags=["Pi hardware (proxy)"])
 
 
 @app.get("/health")

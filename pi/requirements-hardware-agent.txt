@@ -1,0 +1,10 @@
+# Run on the Raspberry Pi (Bookworm) alongside apt packages:
+#   sudo apt install -y python3-picamera2 python3-pil python3-gpiozero
+#
+#   pip install -r requirements-hardware-agent.txt
+#
+fastapi>=0.100.0
+uvicorn[standard]>=0.22.0
+python-multipart
+pydantic>=2.0.0
+Pillow
