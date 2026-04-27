@@ -328,22 +328,20 @@ async function fetchSamples() {
   try {
     const data = await apiFetch(CONFIG.ENDPOINTS.plants);
     list = Array.isArray(data) ? data : data.plants || [];
-    if (list.length) {
-      trays = list;
-      buildTrayList();
-      selectTray(0);
-      buildGalleryTabs();
-    } else {
-      // Empty server list -> wipe local stale state too so dropdowns clear.
-      trays = [];
-      if (typeof buildTrayList === 'function') buildTrayList();
-      if (typeof buildGalleryTabs === 'function') buildGalleryTabs();
-      if (typeof buildGalleryTimeline === 'function') buildGalleryTimeline();
+  if (list.length) {
+    trays = list;
+    buildTrayList();
+    selectTray(0);
+    buildGalleryTabs();
+    populateGraphSampleSelect(list);
+    if (typeof buildControlPlantSelectFromList === 'function') {
+      buildControlPlantSelectFromList(list);
     }
-  } catch { /* use local trays */ }
-  populateGraphSampleSelect(list);
-  if (typeof buildControlPlantSelectFromList === 'function') {
-    buildControlPlantSelectFromList(list);
+  }
+  // ❗ do nothing if empty — prevents wiping UI due to auth/race issues
+  } catch (e) {
+    console.warn('fetchSamples failed — keeping existing trays', e);
+    return; // ❗ stop here, do NOT continue
   }
   if (typeof fetchControls === 'function') {
     await fetchControls();
