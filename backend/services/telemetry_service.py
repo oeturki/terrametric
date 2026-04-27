@@ -19,7 +19,7 @@ service can share the same code path. Two query-side concerns deserve a note:
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from statistics import mean
 from typing import Any, Dict, Iterable, List, Optional
 
