@@ -16,34 +16,32 @@ const CONFIG = {
   // ── Default thresholds ─────────────────────────────
   //    (can also be changed live on the Control Variables page)
   DEFAULTS: {
-    temp_min:         15,
-    temp_max:         30,
-    temp_warn:         28,  // high °C (soft, Home)
-    temp_warn_lo:     null,  // low °C (optional; null = not used)
-    temp_int:         60,   // seconds
-    hum_min:          20,
-    hum_max:          40,
-    hum_warn:          5,   // %
-    hum_warn_lo:      null,
-    hum_interval:     60, // seconds
-    light_min:      5000,
-    light_max:     10000,
-    light_warn:      500,  // lux
-    light_warn_lo:  null,
-    light_interval:   60, // seconds
-    motion_min:        0,
-    motion_max:        1,
-    motion_warn:       1,
-    motion_warn_lo:   null,
-    motion_interval:  20, // seconds
-    height_min:        0,
-    height_max:    10000,
-    height_warn:       5,   // cm
-    height_warn_lo:   null,
-    height_interval:1440,   // minutes
-    cam_on_motion:     0,
-    cam_on_alert:      0,
-    cam_interval:     60,  // minutes
+    temp_min: 15,
+    temp_max: 30,
+    temp_warn_high: 50,  // high °C (soft, Home)
+    temp_warn_low: 10,  // low °C 
+    temp_int: 60,   // seconds
+    hum_min: 20,
+    hum_max: 40,
+    hum_warn_high: 80,   // %
+    hum_warn_low: 20,    // %
+    hum_interval: 60, // seconds
+    light_min: 5000,
+    light_max: 10000,
+    light_warn_high: 500,  // lux
+    light_warn_low: 100,
+    light_interval: 60, // seconds
+    motion_min: 0,
+    motion_max: 1,
+    motion_interval: 20, // seconds
+    height_min: 0,
+    height_max: 10000,
+    height_warn_high: 5,   // cm
+    height_warn_low: null,
+    height_interval: 1440,   // minutes
+    cam_on_motion: 0,
+    cam_on_alert: 0,
+    cam_interval: 60,  // minutes
   },
 
   // ── API endpoint paths ─────────────────────────────────────
@@ -146,7 +144,7 @@ async function fetchControls() {
       document.getElementById("temp-min").value = data.temperature.min ?? "";
       document.getElementById("temp-max").value = data.temperature.max ?? "";
       const wlo = data.temperature.warn_low;
-      const loEl = document.getElementById("warn-temp-lo");
+      const loEl = document.getElementById("warn-temp-low");
       if (loEl) {
         loEl.value = wlo != null && wlo !== "" ? wlo : "";
       }
@@ -159,7 +157,7 @@ async function fetchControls() {
       document.getElementById("humid-min").value = data.humidity.min ?? "";
       document.getElementById("humid-max").value = data.humidity.max ?? "";
       const hwl = data.humidity.warn_low;
-      const humLo = document.getElementById("warn-hum-lo");
+      const humLo = document.getElementById("warn-hum-low");
       if (humLo) {
         humLo.value = hwl != null && hwl !== "" ? hwl : "";
       }
@@ -172,7 +170,7 @@ async function fetchControls() {
       document.getElementById("light-min").value = data.light.min ?? "";
       document.getElementById("light-max").value = data.light.max ?? "";
       const lwl = data.light.warn_low;
-      const lLo = document.getElementById("warn-light-lo");
+      const lLo = document.getElementById("warn-light-low");
       if (lLo) {
         lLo.value = lwl != null && lwl !== "" ? lwl : "";
       }
@@ -184,12 +182,6 @@ async function fetchControls() {
     if (data.motion){
       document.getElementById("motion-min").value = data.motion.min ?? "";
       document.getElementById("motion-max").value = data.motion.max ?? "";
-      const mwl = data.motion.warn_low;
-      const mLo = document.getElementById("warn-motion-lo");
-      if (mLo) {
-        mLo.value = mwl != null && mwl !== "" ? mwl : "";
-      }
-      document.getElementById("warn-motion").value = data.motion.warn ?? "";
       document.getElementById("int-motion").value = data.motion.interval ?? "";
     }
 
@@ -198,7 +190,7 @@ async function fetchControls() {
       document.getElementById("height-min").value = data.height.min ?? "";
       document.getElementById("height-max").value = data.height.max ?? "";
       const ywl = data.height.warn_low;
-      const hLo = document.getElementById("warn-height-lo");
+      const hLo = document.getElementById("warn-height-low");
       if (hLo) {
         hLo.value = ywl != null && ywl !== "" ? ywl : "";
       }
@@ -251,40 +243,38 @@ function getControlData() {
     temperature: {
       min: parseFloat(document.getElementById("temp-min").value),
       max: parseFloat(document.getElementById("temp-max").value),
-      warn_low: _optControlFloat("warn-temp-lo"),
-      warn: _optControlFloat("warn-temp"),
+      warn_low: _optControlFloat("warn-temp-low"),
+      warn_high: _optControlFloat("warn-temp-high"),
       interval: parseInt(document.getElementById("int-temp").value, 10)
     },
 
     humidity: {
       min: parseFloat(document.getElementById("humid-min").value),
       max: parseFloat(document.getElementById("humid-max").value),
-      warn_low: _optControlFloat("warn-hum-lo"),
-      warn: _optControlFloat("warn-hum"),
+      warn_low: _optControlFloat("warn-hum-low"),
+      warn_high: _optControlFloat("warn-hum-high"),
       interval: parseInt(document.getElementById("int-hum").value, 10)
     },
 
     light: {
       min: parseFloat(document.getElementById("light-min").value),
       max: parseFloat(document.getElementById("light-max").value),
-      warn_low: _optControlFloat("warn-light-lo"),
-      warn: _optControlFloat("warn-light"),
+      warn_low: _optControlFloat("warn-light-low"),
+      warn_high: _optControlFloat("warn-light-high"),
       interval: parseInt(document.getElementById("int-light").value, 10)
     },
 
     motion: {
       min: parseFloat(document.getElementById("motion-min").value),
       max: parseFloat(document.getElementById("motion-max").value),
-      warn_low: _optControlFloat("warn-motion-lo"),
-      warn: _optControlFloat("warn-motion"),
       interval: parseInt(document.getElementById("int-motion").value, 10)
     },
 
     height: {
       min: parseFloat(document.getElementById("height-min").value),
       max: parseFloat(document.getElementById("height-max").value),
-      warn_low: _optControlFloat("warn-height-lo"),
-      warn: _optControlFloat("warn-height"),
+      warn_low: _optControlFloat("warn-height-low"),
+      warn_high: _optControlFloat("warn-height-high"),
       interval: parseInt(document.getElementById("int-height").value, 10)
     },
 
@@ -415,11 +405,11 @@ document.addEventListener("DOMContentLoaded", async function () {
   attachRangeValidation('humid-min', 'humid-max');
   attachRangeValidation('light-min', 'light-max');
   attachRangeValidation('height-min', 'height-max');
-  attachRangeValidation('warn-temp-lo', 'warn-temp');
-  attachRangeValidation('warn-hum-lo', 'warn-hum');
-  attachRangeValidation('warn-light-lo', 'warn-light');
-  attachRangeValidation('warn-motion-lo', 'warn-motion');
-  attachRangeValidation('warn-height-lo', 'warn-height');
+  attachRangeValidation('warn-temp-low', 'warn-temp-high');
+  attachRangeValidation('warn-hum-low', 'warn-hum-high');
+  attachRangeValidation('warn-light-low', 'warn-light-high');
+  // attachRangeValidation('warn-motion-low', 'warn-motion'); #motion is either true or false, no threshold range
+  attachRangeValidation('warn-height-low', 'warn-height-high');
 });
 
 function validateControls(data) {
