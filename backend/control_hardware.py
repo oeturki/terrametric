@@ -36,7 +36,7 @@ def send_alert(sensor, message, level="warning", group="1", cooldown=30):
             "group": group
         }, timeout=2)
     except Exception as e:
-        print("⚠ Failed to send alert:", e)
+        print("Error: Failed to send alert -", e)
 
 def get_controls():
     global controls_cache, last_fetch_time
@@ -52,7 +52,7 @@ def get_controls():
                 last_fetch_time = now
                 print("Updated controls from API")
         except Exception as e:
-            print("Failed to fetch controls:", e)
+            print("Error: Failed to fetch controls - ", e)
 
     return controls_cache
 
@@ -68,10 +68,10 @@ def take_photo(reason, group_id):
         camera.capture(filepath)
         camera.stop_preview()
         
-        print(f"📸 Photo captured! Reason: {reason} | Saved to: {filepath}")
+        print(f"Photo captured! Reason: {reason} | Saved to: {filepath}")
         return True
     except Exception as e: #error trapping -- dispalys message if the camera capture fails for some reason
-        print(f"⚠ Camera failed: {e}")
+        print(f"Error: Camera Failed - {e}")
         return False
 
 def read_sensors(): #how to read sensor data - see how omar got sensor data to be read
@@ -86,7 +86,7 @@ def read_sensors(): #how to read sensor data - see how omar got sensor data to b
     # --- handle failures ---
     for name, value in sensors.items():
         if value is None:
-            print(f"⚠ {name} sensor failed")
+            print(f"Error: {name} sensor failed.")
 
     return sensors
 
@@ -101,9 +101,9 @@ def apply_controls(sensors, controls):
     light = sensors.get("light")
     height = sensors.get("height")
     humidity = sensors.get("humidity")
-    motion = sensors.get("motion") #connect to camera
+    motion = sensors.get("motion")
     if temp is None or light is None or height is None or humidity is None or motion is None:
-        print("⚠ Missing sensor data")
+        print("Error: Missing sensor data.")
         return
 
     
@@ -203,7 +203,7 @@ def upload_image(filepath, reason, group_id):
             else:
                 print(f"Upload failed: {response.status_code}")
     except Exception as e:
-        print(f"⚠ Upload error: {e}")
+        print(f"Error: Upload Failed: {e}")
 
 def main_loop():
     try: 
@@ -211,7 +211,7 @@ def main_loop():
             sensors = read_sensors()
             controls = get_controls()
             if controls is None:
-                print("⚠ No controls available yet")
+                print("Error: No controls available yet")
                 time.sleep(2)
                 continue
             apply_controls(sensors, controls)
