@@ -1,12 +1,12 @@
 //  TERRAMETRIC — CONFIGURATION
 //  Set PI_IP and PORT to match where you run uvicorn (see run_dashboard.bat).
-//  Default PORT is 8765 so it does not clash with other apps using 8000.
+//  Default PORT is 8000 — same as: uvicorn main:app --reload
 
 const CONFIG = {
 
   // ── Server IP address and port ─────────────────────────────
   PI_IP:  '127.0.0.1',   // e.g. '192.168.1.42'
-  PORT:   8765,          // local dev (run_dashboard.bat); use 8000 on Pi if needed
+  PORT:   8000,
 
   // ── How often to refresh data (milliseconds) ───────────────
   REFRESH_LIVE:   10000,  // stat cards  — every 10 seconds

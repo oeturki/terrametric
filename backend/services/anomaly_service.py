@@ -95,7 +95,7 @@ class AnomalyDetectionService:
         self._drift_window = drift_window
         self._noise_window = noise_window
 
-        # One buffer per session (created lazily), shared by all buffer-based detectors
+        # One buffer per logical stream (prefer plant_id for live data; else session_id for lab/simulation).
         self._buffers: dict[int, RollingBuffer] = {}
 
         # Detectors that maintain per-session state and need explicit reset()
@@ -118,12 +118,18 @@ class AnomalyDetectionService:
             self._seasonal,
         ]
 
-    def _get_buffer(self, session_id: int) -> RollingBuffer:
-        """Lazily create a buffer for a session. Buffer size = max of both windows."""
-        if session_id not in self._buffers:
+    def _stream_key(self, reading: Reading) -> int:
+        """Isolate detector state per sample (plant) when available; else recording session / lab id."""
+        if reading.plant_id is not None:
+            return int(reading.plant_id)
+        return int(reading.session_id)
+
+    def _get_buffer(self, stream_key: int) -> RollingBuffer:
+        """Lazily create a buffer for this stream. Buffer size = max of both windows."""
+        if stream_key not in self._buffers:
             max_size = max(self._drift_window, self._noise_window)
-            self._buffers[session_id] = RollingBuffer(max_size)
-        return self._buffers[session_id]
+            self._buffers[stream_key] = RollingBuffer(max_size)
+        return self._buffers[stream_key]
 
     def process_reading(self, reading: Reading) -> list[AnomalyEvent]:
         """
@@ -137,9 +143,9 @@ class AnomalyDetectionService:
             List of AnomalyEvent objects detected (empty list if everything is normal)
         """
         events: list[AnomalyEvent] = []
-        session_id = reading.session_id
+        stream_key = self._stream_key(reading)
         timestamp = reading.timestamp
-        buffer = self._get_buffer(session_id)
+        buffer = self._get_buffer(stream_key)
 
         # Add non-null values to the rolling buffer before running detectors
         variable_values = {
@@ -157,7 +163,7 @@ class AnomalyDetectionService:
 
         # Run every detector through the common interface
         for detector in self._detectors:
-            events.extend(detector.detect_reading(reading, buffer, session_id))
+            events.extend(detector.detect_reading(reading, buffer, stream_key))
 
         return events
 
@@ -187,11 +193,11 @@ class AnomalyDetectionService:
             })
         return summary
 
-    def reset(self, session_id: int) -> None:
-        """Clean up when a session ends. Frees buffer memory and all detector state."""
-        self._buffers.pop(session_id, None)
-        self._dropout.reset(session_id)
-        self._correlation.reset(session_id)
-        self._cusum.reset(session_id)
-        self._ewma.reset(session_id)
-        self._seasonal.reset(session_id)
+    def reset(self, stream_key: int) -> None:
+        """Clean up detector state for a plant (sample) or lab session id."""
+        self._buffers.pop(stream_key, None)
+        self._dropout.reset(stream_key)
+        self._correlation.reset(stream_key)
+        self._cusum.reset(stream_key)
+        self._ewma.reset(stream_key)
+        self._seasonal.reset(stream_key)

@@ -79,6 +79,49 @@ def run_sqlite_migrations(engine) -> None:
         # Plants: per-user ownership (nullable until bootstrap_auth fills legacy owner)
         _add_col_if_missing(conn, "plants", "owner_id", "owner_id INTEGER")
 
+        # FR10: persisted anomaly detector outputs (create_all only adds missing tables; old SQLite files need this).
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS anomaly_detection_events (
+                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    plant_id INTEGER NOT NULL,
+                    session_id INTEGER,
+                    telemetry_id INTEGER,
+                    created_at DATETIME NOT NULL,
+                    anomaly_type VARCHAR(32) NOT NULL,
+                    variable VARCHAR(64) NOT NULL,
+                    severity VARCHAR(16) NOT NULL,
+                    message TEXT,
+                    detail_json TEXT,
+                    FOREIGN KEY(plant_id) REFERENCES plants(id) ON DELETE CASCADE,
+                    FOREIGN KEY(session_id) REFERENCES recording_sessions(id),
+                    FOREIGN KEY(telemetry_id) REFERENCES telemetry(id) ON DELETE SET NULL
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_anomaly_detection_events_plant_id ON anomaly_detection_events (plant_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_anomaly_detection_events_created_at ON anomaly_detection_events (created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_anomaly_detection_events_session_id ON anomaly_detection_events (session_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_anomaly_detection_events_telemetry_id ON anomaly_detection_events (telemetry_id)"
+            )
+        )
+
 
 def bootstrap_auth(engine) -> None:
     """

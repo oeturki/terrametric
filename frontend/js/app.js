@@ -81,6 +81,10 @@ function switchTab(tab, el) {
   document.querySelectorAll('.tabpanel').forEach(p => p.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'anomalies') {
+    if (typeof fetchTelemetry === 'function') fetchTelemetry();
+    if (typeof fetchAnomalies === 'function') fetchAnomalies();
+  }
 }
 
 // ── Connection check ─────────────────────────

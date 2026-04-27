@@ -1,48 +1,46 @@
 """
-FR10 - Anomaly Detection endpoints.  [Owner: Omer]
+FR10 - Anomaly Detection endpoints.
 
-Provides REST API for querying detected anomalies and running simulations.
-The simulate endpoint lets you test the full detection pipeline without
-real sensors -- it generates fake data, runs it through the detectors,
-and returns the results in the same shape the Terrametric UI expects.
+Live/dummy ingest: events persisted in ``anomaly_detection_events`` (see ``anomaly_runtime``).
+
+Lab: POST /simulate generates synthetic series in-process only (no DB writes) for teaching/demo.
 """
 
 from __future__ import annotations
 
-import sys
+import json
 import os
-from datetime import datetime
-from typing import Optional
+import sys
+from datetime import datetime, timedelta
+from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
 
+from database import get_db
 from deps.auth import get_current_user
+from models.anomaly_detection_event import AnomalyDetectionEvent
+from models.plant import Plant
+from models.reading import Telemetry
 from models.user import User
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from services.anomaly_service import AnomalyDetectionService, Reading, AnomalyEvent
-from services.detectors.base import SENSOR_PROFILES
+from services.anomaly_runtime import get_anomaly_service, reset_anomaly_state_for_plant, run_detection_and_persist
+from services.anomaly_service import AnomalyEvent
+from services.detectors.base import Reading
+from services.plant_service import get_plant_for_owner
 from simulation.simulator import (
     generate_stable_series,
-    inject_drift,
-    inject_noise,
-    inject_gap,
-    inject_spike,
-    inject_level_shift,
     inject_correlation_break,
+    inject_drift,
+    inject_gap,
+    inject_level_shift,
+    inject_noise,
+    inject_spike,
 )
 
 router = APIRouter()
-
-# In-memory store -- replaced by DB in production
-_event_store: list[dict] = []
-_service = AnomalyDetectionService(
-    drift_window=10,
-    noise_window=10,
-    dropout_multiplier=3,
-    dropout_baseline_count=5,
-)
 
 SEVERITY_MAP = {
     "critical": "danger",
@@ -61,6 +59,29 @@ def _event_to_ui(evt: AnomalyEvent) -> dict:
         "status": "active",
         "type": evt.anomaly_type.value,
         "detail": evt.detail,
+    }
+
+
+def _db_row_to_ui(r: AnomalyDetectionEvent) -> dict:
+    detail: dict[str, Any] = {}
+    if r.detail_json:
+        try:
+            detail = json.loads(r.detail_json)
+        except json.JSONDecodeError:
+            detail = {}
+    return {
+        "id": r.id,
+        "timestamp": r.created_at.isoformat(),
+        "sensor": r.variable,
+        "description": r.message or "",
+        "severity": SEVERITY_MAP.get(r.severity, r.severity),
+        "status": "active",
+        "type": r.anomaly_type,
+        "detail": detail,
+        "plant_id": r.plant_id,
+        "session_id": r.session_id,
+        "telemetry_id": r.telemetry_id,
+        "source": "live",
     }
 
 
@@ -90,42 +111,81 @@ def _build_summary(events: list[dict]) -> dict:
     }
 
 
+def _scoped_anomaly_query(
+    db: Session,
+    user: User,
+    *,
+    plant_id: Optional[int],
+    session_id: Optional[int],
+    hours: Optional[int],
+    anomaly_type: Optional[str],
+    variable: Optional[str],
+    severity: Optional[str],
+):
+    q = (
+        db.query(AnomalyDetectionEvent)
+        .join(Plant, Plant.id == AnomalyDetectionEvent.plant_id)
+        .filter(Plant.owner_id == user.id)
+    )
+    if plant_id is not None:
+        q = q.filter(AnomalyDetectionEvent.plant_id == plant_id)
+    if session_id is not None:
+        q = q.filter(AnomalyDetectionEvent.session_id == session_id)
+    if hours is not None and hours > 0:
+        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        q = q.filter(AnomalyDetectionEvent.created_at >= cutoff)
+    rows = q.order_by(AnomalyDetectionEvent.created_at.desc()).limit(2000).all()
+    out: List[dict] = []
+    for r in rows:
+        d = _db_row_to_ui(r)
+        if anomaly_type and d.get("type") != anomaly_type:
+            continue
+        if variable and d.get("sensor") != variable:
+            continue
+        if severity and d.get("severity") != severity:
+            continue
+        out.append(d)
+    return out
+
+
 @router.get("")
 def list_anomalies(
     session_id: Optional[int] = Query(None),
+    plant_id: Optional[int] = Query(None),
+    hours: Optional[int] = Query(None, ge=1, le=8760, description="Only events newer than N hours"),
     anomaly_type: Optional[str] = Query(None),
     variable: Optional[str] = Query(None),
     severity: Optional[str] = Query(None),
-    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """
-    GET /api/anomalies
-    Returns anomaly events in the shape the Terrametric UI expects.
-    Filterable by session_id, anomaly_type, variable, severity.
+    Persisted detector events for your samples (from live/dummy ingest).
     """
-    filtered = _event_store
-
-    if session_id is not None:
-        filtered = [e for e in filtered if e.get("session_id") == session_id]
-    if anomaly_type:
-        filtered = [e for e in filtered if e.get("type") == anomaly_type]
-    if variable:
-        filtered = [e for e in filtered if e.get("sensor") == variable]
-    if severity:
-        filtered = [e for e in filtered if e.get("severity") == severity]
-
-    ui_events = [{k: v for k, v in e.items() if k != "session_id"} for e in filtered]
-    return _build_summary(ui_events)
+    events = _scoped_anomaly_query(
+        db,
+        user,
+        plant_id=plant_id,
+        session_id=session_id,
+        hours=hours,
+        anomaly_type=anomaly_type,
+        variable=variable,
+        severity=severity,
+    )
+    return _build_summary(events)
 
 
 @router.get("/summary/{session_id}")
-def anomaly_summary(session_id: int, _: User = Depends(get_current_user)):
-    """
-    GET /api/anomalies/summary/{session_id}
-    Returns anomaly summary for a specific session.
-    """
-    session_events = [e for e in _event_store if e.get("session_id") == session_id]
-    return _build_summary(session_events)
+def anomaly_summary(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    events = _scoped_anomaly_query(
+        db, user, plant_id=None, session_id=session_id, hours=None,
+        anomaly_type=None, variable=None, severity=None,
+    )
+    return _build_summary(events)
 
 
 @router.post("/simulate")
@@ -133,26 +193,17 @@ def simulate_anomalies(
     scenario: str = Query(
         "drift",
         description="One of: stable, drift, noise, dropout, spike, "
-                    "level_shift, correlation, all",
+        "level_shift, correlation, all",
     ),
     duration_min: int = Query(30, description="Duration of simulated data in minutes"),
     _: User = Depends(get_current_user),
 ):
     """
-    POST /api/anomalies/simulate?scenario=drift
-
-    Scenarios:
-      stable      -- normal data, should produce 0 anomalies
-      drift       -- temperature gradually increases
-      noise       -- temperature becomes very jittery
-      dropout     -- 8-minute gap in the middle of the data
-      spike       -- random sensor spikes injected
-      level_shift -- abrupt step change mid-way through
-      correlation -- break temp/humidity physical correlation
-      all         -- every injection combined
+    Synthetic lab only: does **not** write telemetry or anomaly rows to the database.
     """
-    global _event_store
-    _service.reset(session_id=99)
+    lab_key = 99
+    svc = get_anomaly_service()
+    svc.reset(lab_key)
 
     seed = 42
     series = generate_stable_series(
@@ -183,7 +234,8 @@ def simulate_anomalies(
 
     for d in series:
         reading = Reading(
-            session_id=99,
+            session_id=lab_key,
+            plant_id=None,
             timestamp=datetime.fromisoformat(d["timestamp"]),
             temperature=d.get("temperature"),
             humidity=d.get("humidity"),
@@ -192,7 +244,7 @@ def simulate_anomalies(
             distance=d.get("distance"),
         )
 
-        events = _service.process_reading(reading)
+        events = svc.process_reading(reading)
 
         readings_out.append({
             "timestamp": d["timestamp"],
@@ -204,10 +256,9 @@ def simulate_anomalies(
 
         for evt in events:
             ui_evt = _event_to_ui(evt)
-            ui_evt["session_id"] = 99
+            ui_evt["session_id"] = lab_key
+            ui_evt["source"] = "synthetic_lab"
             all_events.append(ui_evt)
-
-    _event_store = all_events
 
     summary = _build_summary(
         [{k: v for k, v in e.items() if k != "session_id"} for e in all_events]
@@ -222,9 +273,42 @@ def simulate_anomalies(
 
 
 @router.delete("/clear")
-def clear_anomalies(_: User = Depends(get_current_user)):
-    """Clear the in-memory event store."""
-    global _event_store
-    _event_store = []
-    _service.reset(session_id=99)
-    return {"status": "cleared"}
+def clear_anomalies_lab(_: User = Depends(get_current_user)):
+    """Reset only the synthetic-lab detector state (session key 99). Does not delete DB events."""
+    get_anomaly_service().reset(99)
+    return {"status": "cleared", "scope": "synthetic_lab_session_only"}
+
+
+@router.post("/reprocess")
+def reprocess_anomalies(
+    plant_id: int = Query(..., ge=1),
+    hours: int = Query(24, ge=1, le=720),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Replay telemetry for a sample through detectors and repopulate persisted events
+    for that window (useful after code changes or to backfill).
+    """
+    if get_plant_for_owner(db, plant_id, user.id) is None:
+        raise HTTPException(status_code=404, detail="Plant not found")
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    db.query(AnomalyDetectionEvent).filter(
+        AnomalyDetectionEvent.plant_id == plant_id,
+        AnomalyDetectionEvent.created_at >= cutoff,
+    ).delete(synchronize_session=False)
+    db.commit()
+
+    reset_anomaly_state_for_plant(plant_id)
+
+    rows = (
+        db.query(Telemetry)
+        .filter(Telemetry.plant_id == plant_id, Telemetry.timestamp >= cutoff)
+        .order_by(Telemetry.timestamp.asc())
+        .all()
+    )
+    n = 0
+    for row in rows:
+        run_detection_and_persist(db, row)
+        n += 1
+    return {"plant_id": plant_id, "telemetry_rows_reprocessed": n, "hours": hours}

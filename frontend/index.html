@@ -232,10 +232,14 @@
       <!-- ANOMALIES TAB -->
       <div class="tabpanel" id="tab-anomalies">
         <div class="anom-page">
+        <p id="anomTelemetryHint" style="font-size:11px;color:var(--bark-mid);margin:0 0 12px;max-width:48rem;line-height:1.55;">
+          <strong>Live charts and the event log</strong> use the same sample, time range, binning, and &ldquo;This recording only&rdquo; setting as the <strong>Graphs</strong> tab. Adjust those controls there, then open this tab or wait for the next refresh.
+        </p>
+        <div id="anomDataSourceBanner" class="anom-data-banner" role="status"></div>
 
-        <section class="anom-sim-toolbar" aria-label="Simulation parameters">
+        <section class="anom-sim-toolbar" aria-label="Synthetic lab parameters">
           <div class="anom-sim-toolbar__group">
-            <span class="anom-kicker">Synthetic run</span>
+            <span class="anom-kicker">Synthetic lab</span>
             <label class="anom-sr-only" for="simScenario">Scenario</label>
             <select class="select-pill anom-sim-toolbar__select" id="simScenario">
               <option value="stable">Stable</option>
@@ -257,8 +261,8 @@
             </div>
           </div>
           <div class="anom-sim-toolbar__actions">
-            <button type="button" class="btn btn-primary" id="simRunBtn" onclick="runAnomalySimulation()">Run simulation</button>
-            <button type="button" class="btn btn-ghost" onclick="clearAnomalySimulation()">Clear results</button>
+            <button type="button" class="btn btn-primary" id="simRunBtn" onclick="runAnomalySimulation()">Run synthetic lab</button>
+            <button type="button" class="btn btn-ghost" onclick="clearAnomalySimulation()">Clear lab &amp; show live</button>
           </div>
         </section>
 
@@ -298,6 +302,7 @@
           <div class="card-header anom-card-head">
             <span class="card-title">Per-sensor time series</span>
             <div class="anom-card-head__tools">
+              <button type="button" class="btn btn-ghost" style="font-size:10px;padding:4px 10px;" onclick="reprocessAnomalyWindow()" title="Replay rows in this window through detectors (same plant and hours as Graphs)">Reprocess window</button>
               <label class="anom-check-label">
                 <input type="checkbox" id="anomShowMarkers" checked onchange="renderAnomCharts()"> Event markers
               </label>
@@ -307,7 +312,7 @@
           <div id="anomChartWrap" class="anom-chart-host">
             <div class="anom-placeholder">
               <span class="anom-placeholder__glyph" aria-hidden="true">◇</span>
-              <p class="anom-placeholder__text">Configure a scenario and choose <strong>Run simulation</strong> to generate synthetic telemetry and detector output.</p>
+              <p class="anom-placeholder__text">Open the <strong>Graphs</strong> tab to set sample and range, or use <strong>Run synthetic lab</strong> below for an offline demo (not saved).</p>
             </div>
           </div>
         </section>
@@ -320,7 +325,7 @@
           </div>
           <div id="anomScoreWrap" class="anom-chart-host">
             <div class="anom-placeholder anom-placeholder--compact">
-              <p class="anom-placeholder__text">Scores appear after a successful simulation run.</p>
+              <p class="anom-placeholder__text">Severity-weighted scores appear when anomalies overlap the chart series.</p>
             </div>
           </div>
         </section>

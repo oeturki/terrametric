@@ -17,10 +17,13 @@ service can share the same code path. Two query-side concerns deserve a note:
   same logic works on SQLite + Postgres).
 """
 
+import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
 from statistics import mean
 from typing import Any, Dict, Iterable, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session
 
@@ -90,6 +93,12 @@ def store_telemetry_row(
         evaluate_telemetry_row(db, plant_id=pid, session_id=sid, row=row)
     db.commit()
     db.refresh(row)
+    try:
+        from services.anomaly_runtime import run_detection_and_persist
+
+        run_detection_and_persist(db, row)
+    except Exception:
+        logger.exception("anomaly detection failed for telemetry id=%s", getattr(row, "id", None))
     return row
 
 

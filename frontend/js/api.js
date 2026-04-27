@@ -253,6 +253,11 @@ async function fetchTelemetry() {
       }
     }
     updateCharts(readings);
+    if (typeof syncAnomalyChartsFromTelemetryPayload === 'function'
+        && !window.anomSyntheticLabActive
+        && document.getElementById('tab-anomalies')?.classList.contains('active')) {
+      syncAnomalyChartsFromTelemetryPayload(d);
+    }
   } catch {
     const hint = document.getElementById('graphFilterHint');
     if (hint) { hint.style.display = 'none'; hint.textContent = ''; }
@@ -357,6 +362,7 @@ window.addEventListener('samples:changed', function () {
 // ── Save a plant sample ──────────────────────
 
 async function saveSample() {
+  const prev = trays[selectedTray] || {};
   const sample = {
     name:  document.getElementById('d-name').value  || 'Unnamed Plant',
     loc:   document.getElementById('d-loc').value,
@@ -364,26 +370,57 @@ async function saveSample() {
     notes: document.getElementById('d-notes').value,
     qr:    document.getElementById('d-qr').value,
   };
-  trays[selectedTray] = sample;
+  // Keep any server `id` (and other fields) if this save fails — old code dropped `id` and broke recording.
+  const merged = { ...prev, ...sample };
+  trays[selectedTray] = merged;
   buildTrayList();
   buildGalleryTabs();
   buildGalleryTimeline();
+  if (typeof updateRecordingButtonState === 'function') updateRecordingButtonState();
+
+  const existingId = merged.id;
+  const path = existingId
+    ? CONFIG.ENDPOINTS.plants + '/' + existingId
+    : CONFIG.ENDPOINTS.plants;
+  const method = existingId ? 'PUT' : 'POST';
+
   try {
-    let serverRow;
-    if (sample.id) {
-      serverRow = await apiPut(CONFIG.ENDPOINTS.plants + '/' + sample.id, sample);
-    } else {
-      serverRow = await apiPost(CONFIG.ENDPOINTS.plants, sample);
+    const res = await authFetch(API_BASE + path, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sample),
+    });
+    if (res.status === 401) {
+      return;
     }
+    if (!res.ok) {
+      let detail = 'HTTP ' + res.status;
+      const text = await res.text();
+      try {
+        const j = JSON.parse(text);
+        if (j.detail != null) {
+          detail = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail);
+        }
+      } catch (_) {
+        if (text) detail = text.length > 300 ? text.slice(0, 300) + '…' : text;
+      }
+      throw new Error(detail);
+    }
+    const serverRow = await res.json();
     if (serverRow && serverRow.id != null) {
       trays[selectedTray] = { ...trays[selectedTray], ...serverRow, id: serverRow.id };
       buildTrayList();
       if (typeof updateRecordingButtonState === 'function') updateRecordingButtonState();
-      emitSamplesChanged(sample.id ? 'updated' : 'created', serverRow.id);
+      emitSamplesChanged(existingId ? 'updated' : 'created', serverRow.id);
     }
-    fireAlert('ok', 'Sample Saved', 'Sample ' + (selectedTray + 1) + ' saved.', 4000);
-  } catch {
-    fireAlert('info', 'Saved Locally', 'Sample saved in browser. Will sync when the system connects.', 4000);
+    fireAlert('ok', 'Sample Saved', 'Sample ' + (selectedTray + 1) + ' saved to the server.', 4000);
+  } catch (e) {
+    const msg = e && e.message ? String(e.message) : 'Request failed';
+    if (e && e.name === 'TypeError' && (msg.indexOf('fetch') >= 0 || msg.indexOf('Load failed') >= 0 || msg.indexOf('NetworkError') >= 0)) {
+      fireAlert('danger', 'Save failed', 'Cannot reach the API at ' + API_BASE + '. Start the backend and ensure `PORT` in js/config.js matches the server (default 8000).', 9000);
+      return;
+    }
+    fireAlert('warning', 'Could not save on the server', msg + ' — Sign in at login.html if needed; the form data is still in this page.', 9000);
   }
 }
 

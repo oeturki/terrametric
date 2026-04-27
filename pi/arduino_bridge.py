@@ -22,7 +22,7 @@ Design notes
 Configuration (env vars override defaults):
     TM_BRIDGE_PORT      serial device (default /dev/rfcomm0)
     TM_BRIDGE_BAUD      baud rate    (default 9600)
-    TM_BRIDGE_API       API base     (default http://127.0.0.1:8765)
+    TM_BRIDGE_API       API base     (default http://127.0.0.1:8000)
     TM_BRIDGE_BT_NAME   device name  (default Group14)  -- must match AT+NAME in the sketch
                                                             and Device.bt_name in the UI
     TM_BRIDGE_PLANT_ID  optional int — sample/plant id from Manage Samples. When set, each
@@ -58,7 +58,7 @@ except ImportError as exc:  # pragma: no cover - explicit hint for the Pi user
 
 PORT = os.environ.get("TM_BRIDGE_PORT", "/dev/rfcomm0")
 BAUD = int(os.environ.get("TM_BRIDGE_BAUD", "9600"))
-API_BASE = os.environ.get("TM_BRIDGE_API", "http://127.0.0.1:8765").rstrip("/")
+API_BASE = os.environ.get("TM_BRIDGE_API", "http://127.0.0.1:8000").rstrip("/")
 BT_NAME = os.environ.get("TM_BRIDGE_BT_NAME", "Group14")
 _PLANT_RAW = os.environ.get("TM_BRIDGE_PLANT_ID", "").strip()
 try:

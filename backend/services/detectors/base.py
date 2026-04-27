@@ -35,6 +35,7 @@ class Reading:
     """
     id: Optional[int] = None
     session_id: int = 0
+    plant_id: Optional[int] = None
     timestamp: datetime = field(default_factory=datetime.now)
     temperature: Optional[float] = None
     humidity: Optional[float] = None

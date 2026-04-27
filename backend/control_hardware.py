@@ -2,13 +2,13 @@ import time
 import requests
 
 # FastAPI: per-plant profile (use a real plant_id from your DB / UI)
-API_URL = "http://127.0.0.1:8765/api/control?plant_id=1"
+API_URL = "http://127.0.0.1:8000/api/control?plant_id=1"
 
 controls_cache = None
 last_fetch_time = 0
 FETCH_INTERVAL = 10  # seconds
 
-ALERT_API = "http://127.0.0.1:8765/api/alerts"
+ALERT_API = "http://127.0.0.1:8000/api/alerts"
 last_alert_time = {}
 
 def send_alert(sensor, message, level="warning", group="1", cooldown=30):

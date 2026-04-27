@@ -147,6 +147,14 @@ def clear_telemetry_for_plant(db: Session, plant_id: int, user_id: Optional[int]
     if user_id is not None and p.owner_id is not None and p.owner_id != user_id:
         return None
 
+    from models.anomaly_detection_event import AnomalyDetectionEvent
+    from services.anomaly_runtime import reset_anomaly_state_for_plant
+
+    db.query(AnomalyDetectionEvent).filter(AnomalyDetectionEvent.plant_id == plant_id).delete(
+        synchronize_session=False
+    )
+    reset_anomaly_state_for_plant(plant_id)
+
     # Stop any open session for this plant (do NOT touch other plants' sessions).
     open_sessions = (
         db.query(RecordingSession)
