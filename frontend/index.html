@@ -447,7 +447,7 @@
       </div>
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">📏</div><div class="sensor-name">Height (Ultrasonic)</div></div>
-        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="height-min" value="0" min="0" max="500"><span class="range-sep">to</span><input type="number" step="0.1" id="height-max" value="10000" min="0" max="100"><span class="unit">cm</span></div></div>
+        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="height-min" value="500" min="0" max="500"><span class="range-sep">to</span><input type="number" step="0.1" id="height-max" value="10000" min="0" max="100"><span class="unit">cm</span></div></div>
         <div class="field-row"><span class="field-label">Tolerance Thresholds</span><div class="range-inputs"><input class="field-input" type="number" step="0.1" id="warn-height-low" value="100" min="0" placeholder="low cm" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"><span class="range-sep">to</span><input class="field-input" type="number" step="0.1" id="warn-height-high" value="11000" min="0" placeholder="high cm" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div></div>
         <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-height" value="120" placeholder="seconds"></div>
       </div>
