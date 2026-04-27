@@ -31,7 +31,7 @@ def close_open_sessions_for_user(db: Session, user_id: Optional[int]) -> int:
     End open sessions owned by ``user_id``. When ``user_id`` is None (legacy callers),
     fall back to closing **all** open sessions (backward-compatible single-lab behavior).
     """
-    now = ()
+    now = datetime.now(timezone.utc)
     q = db.query(RecordingSession).filter(RecordingSession.ended_at.is_(None))
     if user_id is not None:
         q = q.filter(RecordingSession.started_by == user_id)
@@ -62,7 +62,8 @@ def start_session(
         raise ValueError("plant_not_found")
     if user_id is not None and p.owner_id is not None and p.owner_id != user_id:
         raise ValueError("plant_forbidden")
-    close_open_sessions_for_user(db, user_id)
+    #close_open_sessions_for_user(db, user_id)
+    close_all_open_sessions(db)
     s = RecordingSession(
         plant_id=plant_id,
         device_id=device_id,
