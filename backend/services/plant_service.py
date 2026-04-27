@@ -10,15 +10,28 @@ from sqlalchemy.orm import Session
 
 from models.audit_log import AuditLog
 from models.plant import Plant
+from models.plant_control import PlantControl
 from schemas.plant import PlantCreate, PlantUpdate
+from services.default_control_profile import default_control_json
 
 
-def list_plants(db: Session) -> List[Plant]:
-    return db.query(Plant).order_by(Plant.id).all()
+def list_plants(db: Session, owner_id: Optional[int] = None) -> List[Plant]:
+    q = db.query(Plant)
+    if owner_id is not None:
+        q = q.filter(Plant.owner_id == owner_id)
+    return q.order_by(Plant.id).all()
 
 
 def get_plant(db: Session, plant_id: int) -> Optional[Plant]:
     return db.query(Plant).filter(Plant.id == plant_id).first()
+
+
+def get_plant_for_owner(db: Session, plant_id: int, owner_id: int) -> Optional[Plant]:
+    return (
+        db.query(Plant)
+        .filter(Plant.id == plant_id, Plant.owner_id == owner_id)
+        .first()
+    )
 
 
 def get_plant_by_qr(db: Session, qr: str) -> Optional[Plant]:
@@ -39,8 +52,11 @@ def create_plant(db: Session, data: PlantCreate, user_id: Optional[int] = None) 
         generation=data.generation,
         lifecycle_state=data.lifecycle_state or "registered",
         created_by=user_id,
+        owner_id=user_id,
     )
     db.add(p)
+    db.flush()
+    db.add(PlantControl(plant_id=p.id, profile_json=default_control_json()))
     db.commit()
     db.refresh(p)
     db.add(
@@ -59,6 +75,8 @@ def create_plant(db: Session, data: PlantCreate, user_id: Optional[int] = None) 
 def update_plant(db: Session, plant_id: int, data: PlantUpdate, user_id: Optional[int] = None) -> Optional[Plant]:
     p = get_plant(db, plant_id)
     if not p:
+        return None
+    if user_id is not None and p.owner_id is not None and p.owner_id != user_id:
         return None
     payload = data.model_dump(exclude_unset=True, by_alias=True)
     alias_to_attr = {"loc": "location", "germ": "germination_date", "qr": "qr_code"}
@@ -82,12 +100,17 @@ def update_plant(db: Session, plant_id: int, data: PlantUpdate, user_id: Optiona
 
 
 def delete_plant(db: Session, plant_id: int, user_id: Optional[int] = None) -> bool:
+    from models.alert import Alert
     from models.reading import Telemetry
     from models.session import RecordingSession
 
     p = get_plant(db, plant_id)
     if not p:
         return False
+    if user_id is not None and p.owner_id is not None and p.owner_id != user_id:
+        return False
+    db.query(Alert).filter(Alert.plant_id == plant_id).delete(synchronize_session=False)
+    db.query(PlantControl).filter(PlantControl.plant_id == plant_id).delete(synchronize_session=False)
     sess_ids = [r.id for r in db.query(RecordingSession).filter(RecordingSession.plant_id == plant_id).all()]
     # Telemetry can be linked via plant_id directly OR via session_id (older rows). Cover both.
     db.query(Telemetry).filter(Telemetry.plant_id == plant_id).delete(synchronize_session=False)
@@ -121,6 +144,16 @@ def clear_telemetry_for_plant(db: Session, plant_id: int, user_id: Optional[int]
     p = get_plant(db, plant_id)
     if not p:
         return None
+    if user_id is not None and p.owner_id is not None and p.owner_id != user_id:
+        return None
+
+    from models.anomaly_detection_event import AnomalyDetectionEvent
+    from services.anomaly_runtime import reset_anomaly_state_for_plant
+
+    db.query(AnomalyDetectionEvent).filter(AnomalyDetectionEvent.plant_id == plant_id).delete(
+        synchronize_session=False
+    )
+    reset_anomaly_state_for_plant(plant_id)
 
     # Stop any open session for this plant (do NOT touch other plants' sessions).
     open_sessions = (
@@ -160,8 +193,10 @@ def clear_telemetry_for_plant(db: Session, plant_id: int, user_id: Optional[int]
 
 
 def delete_all_plants(db: Session, user_id: Optional[int] = None) -> int:
-    """Cascading delete every plant. Returns the number of plants removed."""
-    ids = [p.id for p in db.query(Plant).all()]
+    """Cascading delete plants for ``user_id`` (required — that user's samples only)."""
+    if user_id is None:
+        return 0
+    ids = [p.id for p in list_plants(db, owner_id=user_id)]
     removed = 0
     for pid in ids:
         if delete_plant(db, pid, user_id=user_id):

@@ -532,10 +532,9 @@ async function backfillDummyHistory() {
 }
 
 async function stopSampleRecording() {
-  if (!activeRecordingSession || typeof fetch === 'undefined') return;
+  if (!activeRecordingSession || typeof apiPostNoBody !== 'function') return;
   try {
-    const res = await fetch(API_BASE + '/api/sessions/' + activeRecordingSession.id + '/stop', { method: 'POST' });
-    if (!res.ok) throw new Error('http');
+    await apiPostNoBody('/api/sessions/' + activeRecordingSession.id + '/stop');
     fireAlert('ok', 'Recording stopped', 'Stored readings stay linked to this sample for analysis.', 4000);
     await refreshActiveRecording();
   } catch (e) {
@@ -549,3 +548,10 @@ function initSamplesRecordingUI() {
   refreshActiveRecording();
   setInterval(refreshActiveRecording, 10000);
 }
+
+window.addEventListener("samples:changed", function () {
+  if (typeof buildControlPlantSelectFromList === "function") {
+    buildControlPlantSelectFromList(trays);
+  }
+  // Server sync + control reload: see api.js fetchSamples (also on samples:changed) which awaits fetchControls.
+});

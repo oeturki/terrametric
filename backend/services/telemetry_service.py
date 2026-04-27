@@ -17,16 +17,19 @@ service can share the same code path. Two query-side concerns deserve a note:
   same logic works on SQLite + Postgres).
 """
 
+import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
 from statistics import mean
 from typing import Any, Dict, Iterable, List, Optional
 
+logger = logging.getLogger(__name__)
+
 from sqlalchemy.orm import Session
 
 from models.device import Device
 from models.reading import Telemetry
-from services.recording_session_service import get_open_session_singleton
+from services.recording_session_service import get_any_open_session, get_open_session_for_plant
 
 
 def store_telemetry_row(
@@ -41,12 +44,27 @@ def store_telemetry_row(
     timestamp: Optional[datetime] = None,
     device_id: Optional[int] = None,
     bt_name: Optional[str] = None,
+    plant_id: Optional[int] = None,
 ) -> Telemetry:
-    """Attach to the single open recording session if one exists; optionally touch Device last_seen."""
+    """Attach to an open recording session for the given plant when possible.
+
+    If a ``plant_id`` is provided, prefer the open session for that plant so multiple users
+    can record different samples concurrently. If none, fall back to the most recently started
+    open session (legacy Pi without ``plant_id``).
+
+    If there is *no* open session, an optional ``plant_id`` from ingest still tags the row for
+    threshold evaluation against that sample's control profile (backfill / bench mode).
+    """
     now = datetime.utcnow()
-    open_sess = get_open_session_singleton(db)
+    open_sess = None
+    if plant_id is not None:
+        open_sess = get_open_session_for_plant(db, plant_id)
+    if open_sess is None:
+        open_sess = get_any_open_session(db)
     sid = open_sess.id if open_sess else None
     pid = open_sess.plant_id if open_sess else None
+    if pid is None and plant_id is not None:
+        pid = plant_id
 
     if device_id is not None:
         dev = db.query(Device).filter(Device.id == device_id).first()
@@ -69,13 +87,46 @@ def store_telemetry_row(
         plant_height=plant_height,
     )
     db.add(row)
+    if pid is not None:
+        from services.threshold_service import evaluate_telemetry_row
+
+        evaluate_telemetry_row(db, plant_id=pid, session_id=sid, row=row)
     db.commit()
     db.refresh(row)
+    try:
+        from services.anomaly_runtime import run_detection_and_persist
+
+        run_detection_and_persist(db, row)
+    except Exception:
+        logger.exception("anomaly detection failed for telemetry id=%s", getattr(row, "id", None))
     return row
 
 
 def get_latest_reading(db: Session) -> Optional[Dict[str, Any]]:
     row = db.query(Telemetry).order_by(Telemetry.timestamp.desc()).first()
+    if not row:
+        return None
+    return {
+        "temperature": row.temperature,
+        "humidity": row.humidity,
+        "light": row.light,
+        "height": row.plant_height,
+        "motion": row.movement,
+        "distance": row.distance,
+        "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+        "session_id": row.session_id,
+    }
+
+
+def get_latest_reading_for_plant_ids(db: Session, plant_ids: List[int]) -> Optional[Dict[str, Any]]:
+    if not plant_ids:
+        return None
+    row = (
+        db.query(Telemetry)
+        .filter(Telemetry.plant_id.in_(plant_ids))
+        .order_by(Telemetry.timestamp.desc())
+        .first()
+    )
     if not row:
         return None
     return {

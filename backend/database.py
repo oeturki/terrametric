@@ -63,3 +63,110 @@ def run_sqlite_migrations(engine) -> None:
                             "dummy_stream BOOLEAN NOT NULL DEFAULT 0")
         _add_col_if_missing(conn, "recording_sessions", "stream_interval_sec",
                             "stream_interval_sec INTEGER")
+
+        # One-time: ensure every existing plant has a control profile (after plant_control table exists)
+        if "plant_control" in [r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()]:
+            from services.default_control_profile import default_control_json
+
+            dflt = default_control_json()
+            sub = "SELECT p.id FROM plants p LEFT JOIN plant_control pc ON pc.plant_id = p.id WHERE pc.plant_id IS NULL"
+            for (pid,) in conn.execute(text(sub)).fetchall():
+                conn.execute(
+                    text("INSERT INTO plant_control (plant_id, profile_json) VALUES (:id, :j)"),
+                    {"id": pid, "j": dflt},
+                )
+
+        # Plants: per-user ownership (nullable until bootstrap_auth fills legacy owner)
+        _add_col_if_missing(conn, "plants", "owner_id", "owner_id INTEGER")
+
+        # FR10: persisted anomaly detector outputs (create_all only adds missing tables; old SQLite files need this).
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS anomaly_detection_events (
+                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    plant_id INTEGER NOT NULL,
+                    session_id INTEGER,
+                    telemetry_id INTEGER,
+                    created_at DATETIME NOT NULL,
+                    anomaly_type VARCHAR(32) NOT NULL,
+                    variable VARCHAR(64) NOT NULL,
+                    severity VARCHAR(16) NOT NULL,
+                    message TEXT,
+                    detail_json TEXT,
+                    FOREIGN KEY(plant_id) REFERENCES plants(id) ON DELETE CASCADE,
+                    FOREIGN KEY(session_id) REFERENCES recording_sessions(id),
+                    FOREIGN KEY(telemetry_id) REFERENCES telemetry(id) ON DELETE SET NULL
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_anomaly_detection_events_plant_id ON anomaly_detection_events (plant_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_anomaly_detection_events_created_at ON anomaly_detection_events (created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_anomaly_detection_events_session_id ON anomaly_detection_events (session_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_anomaly_detection_events_telemetry_id ON anomaly_detection_events (telemetry_id)"
+            )
+        )
+
+
+def bootstrap_auth(engine) -> None:
+    """
+    Ensure at least one user exists for FK targets; backfill plant.owner_id and
+    orphan recording session started_by. Safe to call on every startup (idempotent).
+    """
+    from sqlalchemy.orm import sessionmaker
+
+    from config import settings
+    from models.plant import Plant
+    from models.session import RecordingSession
+    from models.user import User
+    from services.auth_service import create_user, hash_password
+
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    db = SessionLocal()
+    try:
+        n = db.query(User).count()
+        if n == 0 and settings.TERRA_BOOTSTRAP_DEMO_USER:
+            create_user(
+                db,
+                settings.TERRA_DEMO_EMAIL,
+                settings.TERRA_DEMO_PASSWORD,
+                is_admin=False,
+            )
+        elif n == 0:
+            # Minimal user row so plants can reference owner_id=1
+            u = User(
+                email=settings.TERRA_DEMO_EMAIL,
+                password_hash=hash_password("!no_login_bootstrap"),
+                is_active=False,
+                is_admin=False,
+            )
+            db.add(u)
+            db.commit()
+
+        first = db.query(User).order_by(User.id.asc()).first()
+        if first:
+            db.query(Plant).filter(Plant.owner_id.is_(None)).update(
+                {Plant.owner_id: first.id}, synchronize_session=False
+            )
+            db.query(RecordingSession).filter(
+                RecordingSession.started_by.is_(None),
+                RecordingSession.ended_at.is_(None),
+            ).update({RecordingSession.started_by: first.id}, synchronize_session=False)
+            db.commit()
+    finally:
+        db.close()

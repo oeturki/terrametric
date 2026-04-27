@@ -1,12 +1,12 @@
 //  TERRAMETRIC — CONFIGURATION
 //  Set PI_IP and PORT to match where you run uvicorn (see run_dashboard.bat).
-//  Default PORT is 8765 so it does not clash with other apps using 8000.
+//  Default PORT is 8000 — same as: uvicorn main:app --reload
 
 const CONFIG = {
 
   // ── Server IP address and port ─────────────────────────────
   PI_IP:  '127.0.0.1',   // e.g. '192.168.1.42'
-  PORT:   8765,          // local dev (run_dashboard.bat); use 8000 on Pi if needed
+  PORT:   8000,
 
   // ── How often to refresh data (milliseconds) ───────────────
   REFRESH_LIVE:   10000,  // stat cards  — every 10 seconds
@@ -18,7 +18,8 @@ const CONFIG = {
   DEFAULTS: {
     temp_min:         15,
     temp_max:         30,
-    temp_warn:         5,   // °C
+    temp_warn:         28,  // high °C (soft, Home)
+    temp_warn_lo:     null,  // low °C (optional; null = not used)
     temp_int:         60,   // seconds
     hum_min:          20,
     hum_max:          40,
@@ -44,6 +45,9 @@ const CONFIG = {
   // ── API endpoint paths ─────────────────────────────────────
   //    Only change these if your server uses different route names
   ENDPOINTS: {
+    login:     '/api/auth/login',
+    register:  '/api/auth/register',
+    me:        '/api/auth/me',
     health:    '/health',
     latest:    '/api/telemetry/latest',
     telemetry: '/api/telemetry/timeseries',
@@ -81,13 +85,50 @@ const API_BASE = (function () {
 })();
 
 // ── Controls ─────────────────────────────────────────────────
-// Expected JSON: { group, temp_warn, temp_interval, hum_warn, hum_interval, … }
+// Per-plant contract: { plant_id, temperature, humidity, … } — same keys server stores.
 
-async function fetchControls() { //use this one
-  const group = document.getElementById("groupSelect").value;
+const TERRAMETRIC_CONTROL_PLANT_KEY = "terrametric_control_plant_id";
+
+/** Fill #groupSelect with server plants (sample list). Call after /api/plants load or samples:changed. */
+function buildControlPlantSelectFromList(plants) {
+  const sel = document.getElementById("groupSelect");
+  if (!sel) return;
+  const had = sel.value;
+  const saved = localStorage.getItem(TERRAMETRIC_CONTROL_PLANT_KEY);
+  sel.innerHTML = "";
+  if (!plants || !plants.length) {
+    const o = document.createElement("option");
+    o.value = "";
+    o.textContent = "No samples — add one in Manage Samples";
+    sel.appendChild(o);
+    return;
+  }
+  plants.forEach(function (p) {
+    const o = document.createElement("option");
+    o.value = String(p.id);
+    o.textContent = p.name ? p.name : "Plant #" + p.id;
+    sel.appendChild(o);
+  });
+  const idSet = {};
+  plants.forEach(function (p) { idSet[String(p.id)] = true; });
+  let pick = (saved && idSet[saved]) ? saved : String(plants[0].id);
+  if (had && idSet[had]) pick = had;
+  sel.value = pick;
+  localStorage.setItem(TERRAMETRIC_CONTROL_PLANT_KEY, pick);
+}
+
+async function fetchControls() {
+  const sel = document.getElementById("groupSelect");
+  const plantId = sel && sel.value;
+  if (!plantId) {
+    return;
+  }
+  localStorage.setItem(TERRAMETRIC_CONTROL_PLANT_KEY, plantId);
 
   try {
-    const res = await fetch(`${API_BASE}${CONFIG.ENDPOINTS.control}?group=${group}`);
+    const res = await authFetch(
+      API_BASE + CONFIG.ENDPOINTS.control + "?plant_id=" + encodeURIComponent(plantId)
+    );
     if (!res.ok) {
       console.error("Failed to load controls");
       return;
@@ -98,6 +139,11 @@ async function fetchControls() { //use this one
     if (data.temperature){
       document.getElementById("temp-min").value = data.temperature.min ?? "";
       document.getElementById("temp-max").value = data.temperature.max ?? "";
+      const wlo = data.temperature.warn_low;
+      const loEl = document.getElementById("warn-temp-lo");
+      if (loEl) {
+        loEl.value = wlo != null && wlo !== "" ? wlo : "";
+      }
       document.getElementById("warn-temp").value = data.temperature.warn ?? "";
       document.getElementById("int-temp").value = data.temperature.interval ?? "";
     }
@@ -158,13 +204,33 @@ async function fetchControls() { //use this one
 }
 
 function getControlData() {
+  const sel = document.getElementById("groupSelect");
+  const plantId = sel && sel.value ? parseInt(sel.value, 10) : NaN;
+  if (isNaN(plantId)) {
+    return null;
+  }
   return {
-    group: document.getElementById("groupSelect").value,
+    plant_id: plantId,
 
     temperature: {
       min: parseFloat(document.getElementById("temp-min").value),
       max: parseFloat(document.getElementById("temp-max").value),
-      warn: parseFloat(document.getElementById("warn-temp").value),
+      warn_low: (function () {
+        const el = document.getElementById("warn-temp-lo");
+        if (!el || el.value === "") {
+          return null;
+        }
+        const x = parseFloat(el.value);
+        return isNaN(x) ? null : x;
+      })(),
+      warn: (function () {
+        const el = document.getElementById("warn-temp");
+        if (!el || el.value === "") {
+          return null;
+        }
+        const x = parseFloat(el.value);
+        return isNaN(x) ? null : x;
+      })(),
       interval: parseInt(document.getElementById("int-temp").value, 10)
     },
 
@@ -220,11 +286,15 @@ function getControlData() {
   
 async function saveControls() {
   const data = getControlData();
+  if (!data) {
+    fireAlert("warning", "No sample", "Add a sample in Manage Samples first.", 5000);
+    return;
+  }
 
   if (!validateControls(data)) return;
 
   try {
-    const res = await fetch(`${API_BASE}${CONFIG.ENDPOINTS.control}`, {
+    const res = await authFetch(`${API_BASE}${CONFIG.ENDPOINTS.control}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -235,12 +305,14 @@ async function saveControls() {
     const result = await res.json();
 
     if (!res.ok) {
-      fireAlert('warning', 'Save Failed', result.error || 'Server error', 5000);
+      const d = result.detail;
+      const msg = typeof d === "string" ? d : (Array.isArray(d) && d[0] && d[0].msg) || "Server error";
+      fireAlert("warning", "Save Failed", msg, 5000);
       return;
     }
-    applyControlsToUI(result.controls);
+    await fetchControls();
 
-    fireAlert('ok', 'Saved', 'Settings updated successfully', 4000);
+    fireAlert("ok", "Saved", "Settings updated successfully", 4000);
 
   } catch (err) {
     console.error(err);
@@ -249,15 +321,19 @@ async function saveControls() {
 }
 
 async function resetControls() {
-  const group = document.getElementById("groupSelect").value;
+  const plantId = document.getElementById("groupSelect").value;
+  if (!plantId) {
+    fireAlert("warning", "No sample", "Add a sample in Manage Samples first.", 5000);
+    return;
+  }
 
   try {
-    const res = await fetch(`${API_BASE}/api/control/reset`, {
+    const res = await authFetch(`${API_BASE}/api/control/reset`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ group })
+      body: JSON.stringify({ plant_id: parseInt(plantId, 10) })
     });
     
     const result = await res.json();
@@ -305,8 +381,10 @@ function attachRangeValidation(minId, maxId) {
   maxInput.addEventListener('input', validate);
 }
 // run after page loads
-document.addEventListener('DOMContentLoaded', async () => {
-  await fetchControls();
+document.addEventListener("DOMContentLoaded", async function () {
+  if (document.getElementById("groupSelect") && document.getElementById("groupSelect").value) {
+    await fetchControls();
+  }
   attachRangeValidation('temp-min', 'temp-max');
   attachRangeValidation('humid-min', 'humid-max');
   attachRangeValidation('light-min', 'light-max');
@@ -314,6 +392,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function validateControls(data) {
+  if (!data || !data.plant_id) {
+    alert("Select a sample first");
+    return false;
+  }
 
   // ── Temperature ──
   if (isNaN(data.temperature.min) || isNaN(data.temperature.max)) {
@@ -326,8 +408,13 @@ function validateControls(data) {
     return false;
   }
 
-  if (data.temperature.warn > data.temperature.max) {
-    alert("Temperature warning cannot exceed max");
+  if (data.temperature.warn != null && !isNaN(data.temperature.warn) && data.temperature.warn > data.temperature.max) {
+    alert("Temperature tolerance (high) cannot exceed desired max");
+    return false;
+  }
+  if (data.temperature.warn_low != null && !isNaN(data.temperature.warn_low) && data.temperature.warn != null
+      && !isNaN(data.temperature.warn) && data.temperature.warn_low >= data.temperature.warn) {
+    alert("Temperature tolerance low must be less than tolerance high");
     return false;
   }
 

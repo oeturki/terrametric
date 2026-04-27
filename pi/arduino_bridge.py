@@ -22,9 +22,12 @@ Design notes
 Configuration (env vars override defaults):
     TM_BRIDGE_PORT      serial device (default /dev/rfcomm0)
     TM_BRIDGE_BAUD      baud rate    (default 9600)
-    TM_BRIDGE_API       API base     (default http://127.0.0.1:8765)
+    TM_BRIDGE_API       API base     (default http://127.0.0.1:8000)
     TM_BRIDGE_BT_NAME   device name  (default Group14)  -- must match AT+NAME in the sketch
                                                             and Device.bt_name in the UI
+    TM_BRIDGE_PLANT_ID  optional int — sample/plant id from Manage Samples. When set, each
+                        ingest includes ``plant_id`` so threshold alerts work even with no
+                        open recording session (set to the same id as the sample you control).
 
 Usage:
     pip install pyserial requests
@@ -55,8 +58,13 @@ except ImportError as exc:  # pragma: no cover - explicit hint for the Pi user
 
 PORT = os.environ.get("TM_BRIDGE_PORT", "/dev/rfcomm0")
 BAUD = int(os.environ.get("TM_BRIDGE_BAUD", "9600"))
-API_BASE = os.environ.get("TM_BRIDGE_API", "http://127.0.0.1:8765").rstrip("/")
+API_BASE = os.environ.get("TM_BRIDGE_API", "http://127.0.0.1:8000").rstrip("/")
 BT_NAME = os.environ.get("TM_BRIDGE_BT_NAME", "Group14")
+_PLANT_RAW = os.environ.get("TM_BRIDGE_PLANT_ID", "").strip()
+try:
+    PLANT_ID: Optional[int] = int(_PLANT_RAW) if _PLANT_RAW else None
+except ValueError:
+    PLANT_ID = None
 
 INGEST_PATH = "/api/telemetry/ingest"
 RETRY_SECONDS = 3
@@ -115,7 +123,12 @@ def _run_once(http: requests.Session) -> None:
     log.info("opening %s @ %s", PORT, BAUD)
     ser = serial.Serial(PORT, BAUD, timeout=SERIAL_TIMEOUT)
     try:
-        log.info("connected; forwarding to %s (bt_name=%s)", API_BASE + INGEST_PATH, BT_NAME)
+        log.info(
+            "connected; forwarding to %s (bt_name=%s, plant_id=%s)",
+            API_BASE + INGEST_PATH,
+            BT_NAME,
+            PLANT_ID,
+        )
         lines_ok = 0
         lines_bad = 0
         last_log = time.time()
@@ -137,6 +150,8 @@ def _run_once(http: requests.Session) -> None:
                 continue
 
             payload["bt_name"] = BT_NAME
+            if PLANT_ID is not None:
+                payload["plant_id"] = PLANT_ID
             result = _post(http, payload)
             if result is not None:
                 lines_ok += 1
@@ -161,6 +176,8 @@ def _run_once(http: requests.Session) -> None:
 
 def main() -> int:
     _setup_logging()
+    if _PLANT_RAW and PLANT_ID is None:
+        log.warning("TM_BRIDGE_PLANT_ID is not a valid integer, ignored")
 
     shutting_down = {"flag": False}
 

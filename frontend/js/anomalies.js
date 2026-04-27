@@ -10,6 +10,108 @@ let anomLogVisible = ANOM_PAGE_SIZE;
 let anomAckKeys = new Set();
 let anomFocusTs = null;
 
+/** When true, periodic fetches must not overwrite lab charts or the synthetic event log. */
+window.anomSyntheticLabActive = false;
+let anomDataSource = 'live';
+let anomSimReadings = [];
+let anomSimActiveSensors = new Set(['temperature']);
+
+function anomEventsNearReadingTs(readingTs) {
+  const t0 = new Date(readingTs).getTime();
+  if (!Number.isFinite(t0)) return [];
+  return anomalyLog.filter(e => {
+    const ta = new Date(e.timestamp).getTime();
+    return Number.isFinite(ta) && Math.abs(ta - t0) <= 120000;
+  });
+}
+
+function anomFindReadingIndexForTs(ts) {
+  if (!anomSimReadings.length || ts == null) return -1;
+  const target = new Date(ts).getTime();
+  if (Number.isNaN(target)) return -1;
+  let best = -1;
+  let bestDiff = Infinity;
+  for (let i = 0; i < anomSimReadings.length; i++) {
+    const t = new Date(anomSimReadings[i].timestamp).getTime();
+    const d = Math.abs(t - target);
+    if (d < bestDiff) { bestDiff = d; best = i; }
+  }
+  return bestDiff <= 120000 ? best : -1;
+}
+
+function updateAnomDataSourceBanner() {
+  const el = document.getElementById('anomDataSourceBanner');
+  if (!el) return;
+  if (anomDataSource === 'synthetic_lab') {
+    el.textContent = 'Synthetic lab · offline run (not saved to the database)';
+    el.classList.add('anom-banner--lab');
+    return;
+  }
+  const rangeLabel = document.getElementById('graphRange')?.selectedOptions[0]?.textContent || '';
+  const pid = document.getElementById('graphSample')?.value;
+  el.textContent = pid
+    ? ('Live telemetry · ' + rangeLabel + ' · sample #' + pid + ' (same filters as Graphs)')
+    : ('Live telemetry · ' + rangeLabel + ' · all samples combined');
+  el.classList.remove('anom-banner--lab');
+}
+
+/**
+ * Called from fetchTelemetry when the Anomalies tab is visible — keeps charts aligned with View Data.
+ */
+function syncAnomalyChartsFromTelemetryPayload(d) {
+  if (!d || !Array.isArray(d.timestamps) || !d.timestamps.length) {
+    anomSimReadings = [];
+    anomDataSource = 'live';
+    updateAnomDataSourceBanner();
+    buildAnomSensorPills();
+    const wrap = document.getElementById('anomChartWrap');
+    const score = document.getElementById('anomScoreWrap');
+    if (wrap) {
+      wrap.innerHTML = '<div class="anom-placeholder"><span class="anom-placeholder__glyph" aria-hidden="true">◇</span><p class="anom-placeholder__text">No telemetry in this window for the current filters. Use the <strong>Graphs</strong> tab to pick a sample or widen the range.</p></div>';
+    }
+    if (score) {
+      score.innerHTML = '<div class="anom-placeholder anom-placeholder--compact"><p class="anom-placeholder__text">No data in range.</p></div>';
+    }
+    if (charts.anomSim) { for (const c of Object.values(charts.anomSim)) { if (c && c.destroy) c.destroy(); } charts.anomSim = null; }
+    if (charts.anomScore && charts.anomScore.destroy) { charts.anomScore.destroy(); charts.anomScore = null; }
+    return;
+  }
+  anomSimReadings = [];
+  for (let i = 0; i < d.timestamps.length; i++) {
+    anomSimReadings.push({
+      timestamp: d.timestamps[i],
+      temperature: d.temperature[i],
+      humidity: d.humidity[i],
+      light: d.light[i],
+      height: d.plant_height[i]
+    });
+  }
+  anomDataSource = 'live';
+  updateAnomDataSourceBanner();
+  buildAnomSensorPills();
+  renderAnomCharts();
+  renderAnomalyScoreTimeline();
+}
+
+async function reprocessAnomalyWindow() {
+  const plantId = document.getElementById('graphSample')?.value;
+  if (!plantId) {
+    fireAlert('warning', 'Select a sample', 'Choose a plant in the Graphs dropdown first.', 4000);
+    return;
+  }
+  const hours = parseInt(document.getElementById('graphRange')?.value || '24', 10);
+  try {
+    const res = await authFetch(API_BASE + '/api/anomalies/reprocess?plant_id=' + encodeURIComponent(plantId) + '&hours=' + encodeURIComponent(String(hours)), { method: 'POST' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const j = await res.json();
+    fireAlert('ok', 'Reprocessed', 'Replayed ' + (j.telemetry_rows_reprocessed || 0) + ' telemetry rows for sample #' + plantId + '.', 5000);
+    if (typeof fetchAnomalies === 'function') await fetchAnomalies();
+    if (typeof fetchTelemetry === 'function') await fetchTelemetry();
+  } catch (e) {
+    fireAlert('danger', 'Reprocess failed', String(e.message || e), 5000);
+  }
+}
+
 function anomEventKey(evt) {
   return (evt.timestamp || '') + '|' + (evt.type || '') + '|' + (evt.sensor || '') + '|' + String(evt.description || '').slice(0, 120);
 }
@@ -119,15 +221,22 @@ function anomCollectFiltered() {
   return filtered;
 }
 
-let anomSimReadings = [];
-let anomSimActiveSensors = new Set(['temperature']);
-
 async function fetchAnomalies() {
+  if (window.anomSyntheticLabActive) return;
   try {
-    const d = await apiFetch(CONFIG.ENDPOINTS.anomalies);
-    anomalyLog = d.events || d || [];
+    const hourRange = parseInt(document.getElementById('graphRange')?.value || '168', 10);
+    const sampleEl = document.getElementById('graphSample');
+    const plantId = sampleEl && sampleEl.value ? String(sampleEl.value).trim() : '';
+    let path = CONFIG.ENDPOINTS.anomalies + '?hours=' + encodeURIComponent(String(Math.min(Math.max(hourRange, 1), 8760)));
+    if (plantId) path += '&plant_id=' + encodeURIComponent(plantId);
+    const d = await apiFetch(path);
+    anomalyLog = d.events || [];
     updateAnomalySummaryCards(d);
     renderAnomalyTable();
+    if (anomDataSource === 'live' && anomSimReadings.length && document.getElementById('tab-anomalies')?.classList.contains('active')) {
+      renderAnomCharts();
+      renderAnomalyScoreTimeline();
+    }
   } catch {
     resetAnomalySummaryCards();
   }
@@ -200,6 +309,7 @@ function formatScenarioLabel(scenario) {
 }
 
 async function runAnomalySimulation() {
+  window.anomSyntheticLabActive = true;
   const btn = document.getElementById('simRunBtn');
   const card = document.getElementById('anomChartCard');
   btn.disabled = true; btn.textContent = 'Running…';
@@ -222,10 +332,12 @@ async function runAnomalySimulation() {
   }
 
   try {
-    const res = await fetch(API_BASE + '/api/anomalies/simulate?scenario=' + scenario + '&duration_min=' + duration, { method: 'POST' });
+    const res = await authFetch(API_BASE + '/api/anomalies/simulate?scenario=' + scenario + '&duration_min=' + duration, { method: 'POST' });
     const d = await res.json();
     anomSimReadings = d.readings || [];
     anomalyLog = d.events || [];
+    anomDataSource = 'synthetic_lab';
+    updateAnomDataSourceBanner();
     updateAnomalySummaryCards(d);
     buildAnomSensorPills();
     anomResetVisible();
@@ -237,32 +349,45 @@ async function runAnomalySimulation() {
   } catch (err) {
     fireAlert('danger', 'Simulation Failed', 'Cannot reach backend — make sure uvicorn is running on port ' + CONFIG.PORT, 6000);
     console.error(err);
+    window.anomSyntheticLabActive = false;
   } finally {
-    btn.disabled = false; btn.textContent = 'Run simulation';
+    btn.disabled = false; btn.textContent = 'Run synthetic lab';
     overlay.remove();
   }
 }
 
 function clearAnomalySimulation() {
-  fetch(API_BASE + '/api/anomalies/clear', { method: 'DELETE' }).catch(() => {});
-  anomalyLog = []; anomSimReadings = [];
+  window.anomSyntheticLabActive = false;
+  anomDataSource = 'live';
+  updateAnomDataSourceBanner();
+  authFetch(API_BASE + '/api/anomalies/clear', { method: 'DELETE' }).catch(() => {});
+  anomalyLog = [];
+  anomSimReadings = [];
   anomResetVisible();
   anomFocusTs = null;
   document.getElementById('anomFocusBar')?.classList.remove('visible');
   resetAnomalySummaryCards();
   if (charts.anomSim) { for (const c of Object.values(charts.anomSim)) { if (c && c.destroy) c.destroy(); } charts.anomSim = null; }
   if (charts.anomScore) { charts.anomScore.destroy(); charts.anomScore = null; }
-  document.getElementById('anomChartWrap').innerHTML = '<div class="anom-placeholder"><span class="anom-placeholder__glyph" aria-hidden="true">◇</span><p class="anom-placeholder__text">Configure a scenario and choose <strong>Run simulation</strong> to generate synthetic telemetry and detector output.</p></div>';
-  document.getElementById('anomScoreWrap').innerHTML = '<div class="anom-placeholder anom-placeholder--compact"><p class="anom-placeholder__text">Scores appear after a successful simulation run.</p></div>';
+  document.getElementById('anomChartWrap').innerHTML = '<div class="anom-placeholder"><span class="anom-placeholder__glyph" aria-hidden="true">◇</span><p class="anom-placeholder__text">Loading live series from the <strong>Graphs</strong> filters, or run <strong>Synthetic lab</strong> below for an offline demo.</p></div>';
+  document.getElementById('anomScoreWrap').innerHTML = '<div class="anom-placeholder anom-placeholder--compact"><p class="anom-placeholder__text">Scores use the anomaly log for the current window.</p></div>';
   document.getElementById('anomSensorPills').innerHTML = '';
-  document.getElementById('anomalyBody').innerHTML = '<div class="anom-placeholder"><span class="anom-placeholder__glyph" aria-hidden="true">◇</span><p class="anom-placeholder__text">No events loaded. Run a simulation or connect live telemetry to populate this register.</p></div>';
+  document.getElementById('anomalyBody').innerHTML = '<div class="anom-placeholder"><span class="anom-placeholder__glyph" aria-hidden="true">◇</span><p class="anom-placeholder__text">Loading events from the server…</p></div>';
   document.getElementById('anomLogCount').textContent = '';
   const infoPanel = document.getElementById('anomScenarioInfo');
   if (infoPanel) infoPanel.classList.remove('is-visible');
+  if (typeof fetchTelemetry === 'function') {
+    fetchTelemetry().then(function () {
+      if (typeof fetchAnomalies === 'function') fetchAnomalies();
+    });
+  } else if (typeof fetchAnomalies === 'function') {
+    fetchAnomalies();
+  }
 }
 
 function buildAnomSensorPills() {
   const container = document.getElementById('anomSensorPills');
+  if (!container) return;
   const available = new Set();
   for (const r of anomSimReadings) {
     for (const k of ['temperature','humidity','light','height']) { if (r[k] != null) available.add(k); }
@@ -314,8 +439,9 @@ function renderAnomCharts() {
         datasets.push({
           label: meta.label,
           data: evts.map(e => {
-            const idx = anomSimReadings.findIndex(r => r.timestamp === e.timestamp);
-            return idx >= 0 ? { x: labels[idx], y: rMap[e.timestamp]?.[sensor] ?? null } : null;
+            const idx = anomFindReadingIndexForTs(e.timestamp);
+            const tsKey = idx >= 0 ? anomSimReadings[idx].timestamp : e.timestamp;
+            return idx >= 0 ? { x: labels[idx], y: rMap[tsKey]?.[sensor] ?? anomSimReadings[idx][sensor] ?? null } : null;
           }).filter(Boolean),
           pointStyle: 'triangle',
           pointRadius: 6, pointBorderColor: meta.color, pointBackgroundColor: meta.color + '88',
@@ -336,7 +462,12 @@ function renderAnomCharts() {
               const idx = ctx[0]?.dataIndex;
               if (idx == null) return '';
               const ts = anomSimReadings[idx]?.timestamp;
-              const evts = anomalyLog.filter(e => e.timestamp === ts && (e.sensor === sensor || e.sensor === 'temperature+humidity'));
+              const t0 = ts ? new Date(ts).getTime() : 0;
+              const evts = anomalyLog.filter(e => {
+                if (!(e.sensor === sensor || e.sensor === 'temperature+humidity')) return false;
+                const ta = new Date(e.timestamp).getTime();
+                return Number.isFinite(ta) && Number.isFinite(t0) && Math.abs(ta - t0) <= 120000;
+              });
               if (!evts.length) return '';
               return '\n--- Anomalies ---\n' + evts.map(e => (ANOM_TYPE_META[e.type]?.icon||'') + ' ' + e.type + ': ' + (e.description||'').slice(0,60)).join('\n');
             }}
@@ -360,7 +491,7 @@ function renderAnomalyScoreTimeline() {
 
   const labels = anomSimReadings.map(r => new Date(r.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
   const scores = anomSimReadings.map(r => {
-    const evts = anomalyLog.filter(e => e.timestamp === r.timestamp);
+    const evts = anomEventsNearReadingTs(r.timestamp);
     let score = 0;
     for (const e of evts) { score += e.severity === 'danger' ? 3 : e.severity === 'warning' ? 2 : 1; }
     return score;
@@ -374,7 +505,7 @@ function renderAnomalyScoreTimeline() {
     type: 'bar', data: { labels, datasets: [{ label:'Anomaly Score', data:scores, backgroundColor:g, borderColor:'rgba(168,50,50,0.7)', borderWidth:1, borderRadius:2 }] },
     options: {
       responsive:true, maintainAspectRatio:true, animation:{duration:300},
-      plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#2c2a1e', bodyFont:{family:'DM Mono',size:10}, cornerRadius:6, callbacks:{ label:ctx => 'Score: '+ctx.raw+' ('+anomalyLog.filter(e=>e.timestamp===anomSimReadings[ctx.dataIndex]?.timestamp).length+' events)' } } },
+      plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#2c2a1e', bodyFont:{family:'DM Mono',size:10}, cornerRadius:6, callbacks:{ label:ctx => { const ts = anomSimReadings[ctx.dataIndex]?.timestamp; const n = ts ? anomEventsNearReadingTs(ts).length : 0; return 'Score: '+ctx.raw+' ('+n+' events)'; } } },
       scales:{ x:{display:false}, y:{beginAtZero:true,ticks:{font:{family:'DM Mono',size:9},stepSize:1},grid:{color:'#e8e3d033'}} }
     }
   });
@@ -512,7 +643,7 @@ function buildDetailPanel(event) {
 }
 
 function exportAnomalyCSV() {
-  if (!anomalyLog.length) { fireAlert('warning','No Data','Run a simulation first.',3000); return; }
+  if (!anomalyLog.length) { fireAlert('warning','No Data','Load live events (ingest or wait for refresh) or run the synthetic lab.',3000); return; }
   const header = 'Timestamp,Type,Sensor,Description,Severity,Status';
   const rows = anomalyLog.map(e => {
     const desc = (e.description == null ? '' : String(e.description)).replace(/"/g,'""');
@@ -522,7 +653,7 @@ function exportAnomalyCSV() {
 }
 
 function printAnomalyReport() {
-  if (!anomalyLog.length) { fireAlert('warning','No Data','Run a simulation first.',3000); return; }
+  if (!anomalyLog.length) { fireAlert('warning','No Data','Load live events or run the synthetic lab.',3000); return; }
   const w = window.open('', '_blank');
   const scenario = document.getElementById('simScenario').value;
   let html = '<html><head><title>TerraMetric Anomaly Report</title><style>body{font-family:Arial,sans-serif;padding:40px;color:#333;}h1{font-size:18px;}table{border-collapse:collapse;width:100%;margin-top:16px;font-size:11px;}th,td{border:1px solid #ddd;padding:6px 10px;text-align:left;}th{background:#f5f0e0;}.badge{padding:2px 6px;border-radius:4px;font-size:9px;font-weight:bold;}.danger{background:#ffe0e0;color:#8a1010;}.warning{background:#fff0c0;color:#8a5000;}.info{background:#e0f0ff;color:#204060;}</style></head><body>';
@@ -542,3 +673,12 @@ function printAnomalyReport() {
 
 loadAnomAckFromStorage();
 initAnomalyBodyDelegateOnce();
+updateAnomDataSourceBanner();
+
+window.addEventListener('samples:changed', function () {
+  if (window.anomSyntheticLabActive) return;
+  if (typeof fetchAnomalies === 'function') fetchAnomalies();
+  if (typeof fetchTelemetry === 'function' && document.getElementById('tab-anomalies')?.classList.contains('active')) {
+    fetchTelemetry();
+  }
+});

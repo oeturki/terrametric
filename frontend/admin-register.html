@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TerraMetric — Admin registration (demo)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    .auth-wrap { max-width: 420px; margin: 4rem auto; padding: 2rem; background: var(--panel, #faf7f2); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.08); }
+    .auth-wrap h1 { font-family: Syne, sans-serif; font-size: 1.35rem; margin-bottom: 0.75rem; }
+    .auth-field { margin-bottom: 1rem; }
+    .auth-field label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--bark-mid, #6b5e54); margin-bottom: 6px; }
+    .auth-field input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(0,0,0,.12); font-family: inherit; box-sizing: border-box; }
+    .auth-err { color: #b8392b; font-size: 13px; margin-top: 8px; min-height: 1.2em; }
+    .hint { font-size: 12px; color: var(--bark-mid); line-height: 1.45; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="auth-wrap">
+    <h1>Admin registration (demo)</h1>
+    <p class="hint">Creates an account with <strong>is_admin</strong> set. Set <code>ADMIN_REGISTRATION_SECRET</code> in the server <code>.env</code>; the secret must match the field below (empty secret = open demo, not for production).</p>
+    <form id="adminForm" onsubmit="return submitAdminReg(event)">
+      <div class="auth-field">
+        <label for="secret">Admin secret</label>
+        <input id="secret" name="secret" type="password" autocomplete="off" placeholder="Match server ADMIN_REGISTRATION_SECRET">
+      </div>
+      <div class="auth-field">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="username" required>
+      </div>
+      <div class="auth-field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="new-password" minlength="6" required>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%">Create admin</button>
+      <div class="auth-err" id="admErr"></div>
+    </form>
+    <p style="margin-top:1rem;font-size:13px;"><a href="login.html">Back to sign in</a></p>
+  </div>
+  <script src="js/auth.js"></script>
+  <script src="js/config.js"></script>
+  <script>
+    async function submitAdminReg(ev) {
+      ev.preventDefault();
+      var err = document.getElementById('admErr');
+      err.textContent = '';
+      try {
+        var res = await fetch(API_BASE + '/api/auth/register-admin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value,
+            admin_secret: document.getElementById('secret').value
+          })
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok) {
+          err.textContent = (typeof data.detail === 'string') ? data.detail : 'Registration failed';
+          return false;
+        }
+        setAccessToken(data.access_token);
+        window.location.href = 'index.html#home';
+      } catch (e) {
+        err.textContent = 'Network error';
+      }
+      return false;
+    }
+  </script>
+</body>
+</html>

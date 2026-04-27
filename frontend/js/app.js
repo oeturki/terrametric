@@ -3,6 +3,15 @@
 //           utility helpers, and boot sequence
 // ─────────────────────────────────────────────
 
+(function requireLoginShell() {
+  try {
+    if (!document.getElementById('page-home')) return;
+    if (typeof getAccessToken === 'function' && !getAccessToken()) {
+      window.location.replace('login.html');
+    }
+  } catch (_) { /* non-browser */ }
+})();
+
 let isConnected = false;
 
 // ── Page navigation ──────────────────────────
@@ -16,6 +25,9 @@ function _afterPageShow(page) {
     if (typeof refreshActiveRecording === 'function') refreshActiveRecording();
   }
   if (page === 'viewdata') buildGalleryTabs();
+  if (page === 'control' && typeof fetchControls === 'function') {
+    fetchControls();
+  }
 }
 
 function goTo(page, navEl) {
@@ -69,6 +81,10 @@ function switchTab(tab, el) {
   document.querySelectorAll('.tabpanel').forEach(p => p.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'anomalies') {
+    if (typeof fetchTelemetry === 'function') fetchTelemetry();
+    if (typeof fetchAnomalies === 'function') fetchAnomalies();
+  }
 }
 
 // ── Connection check ─────────────────────────

@@ -267,6 +267,22 @@ body { font-family: 'DM Mono', monospace; background: var(--cream); color: var(-
   max-width: 1200px;
 }
 
+.anom-data-banner {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--anom-ink);
+  background: #f5f3ed;
+  border: 1px solid var(--anom-border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 4px;
+}
+.anom-data-banner.anom-banner--lab {
+  background: #faf8f2;
+  border-style: dashed;
+  color: var(--anom-muted);
+}
+
 .anom-sr-only {
   position: absolute;
   width: 1px;

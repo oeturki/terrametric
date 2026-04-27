@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TerraMetric — Sign in</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    .auth-wrap { max-width: 380px; margin: 4rem auto; padding: 2rem; background: var(--panel, #faf7f2); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.08); }
+    .auth-wrap h1 { font-family: Syne, sans-serif; font-size: 1.5rem; margin-bottom: 0.5rem; }
+    .auth-field { margin-bottom: 1rem; }
+    .auth-field label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--bark-mid, #6b5e54); margin-bottom: 6px; }
+    .auth-field input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(0,0,0,.12); font-family: inherit; box-sizing: border-box; }
+    .auth-err { color: #b8392b; font-size: 13px; margin-top: 8px; min-height: 1.2em; }
+    .auth-links { margin-top: 1.25rem; font-size: 13px; color: var(--bark-mid, #6b5e54); }
+    .auth-links a { color: var(--accent, #2d6a4f); }
+  </style>
+</head>
+<body>
+  <div class="auth-wrap">
+    <h1>TerraMetric</h1>
+    <p style="color:var(--bark-mid);font-size:14px;margin-bottom:1.5rem;">Sign in with your account. Default demo (fresh DB): <strong>demo@example.com</strong> / <strong>demo</strong></p>
+    <form id="loginForm" onsubmit="return submitLogin(event)">
+      <div class="auth-field">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="username" required>
+      </div>
+      <div class="auth-field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px;">Sign in</button>
+      <div class="auth-err" id="loginErr"></div>
+    </form>
+    <div class="auth-links">
+      No account? <a href="#" id="linkRegister">Register</a>
+      · <a href="admin-register.html">Admin registration</a> (demo)
+    </div>
+  </div>
+  <script src="js/auth.js"></script>
+  <script src="js/config.js"></script>
+  <script>
+    document.getElementById('linkRegister').onclick = function (e) {
+      e.preventDefault();
+      var box = document.createElement('div');
+      box.className = 'auth-wrap';
+      box.style.marginTop = '2rem';
+      box.innerHTML = '<h2 style="font-family:Syne,sans-serif;font-size:1.1rem;">Create account</h2>' +
+        '<form id="regForm">' +
+        '<div class="auth-field"><label>Email</label><input id="regEmail" type="email" required></div>' +
+        '<div class="auth-field"><label>Password (min 6)</label><input id="regPass" type="password" minlength="6" required></div>' +
+        '<button type="submit" class="btn btn-primary" style="width:100%">Register</button>' +
+        '<div class="auth-err" id="regErr"></div></form>';
+      document.body.appendChild(box);
+      document.getElementById('regForm').onsubmit = async function (ev) {
+        ev.preventDefault();
+        document.getElementById('regErr').textContent = '';
+        try {
+          var res = await fetch(API_BASE + CONFIG.ENDPOINTS.register, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: document.getElementById('regEmail').value,
+              password: document.getElementById('regPass').value
+            })
+          });
+          var data = await res.json().catch(function () { return {}; });
+          if (!res.ok) {
+            document.getElementById('regErr').textContent = (data.detail) || 'Registration failed';
+            return;
+          }
+          setAccessToken(data.access_token);
+          window.location.href = 'index.html#home';
+        } catch (err) {
+          document.getElementById('regErr').textContent = 'Network error';
+        }
+      };
+    };
+    async function submitLogin(ev) {
+      ev.preventDefault();
+      var err = document.getElementById('loginErr');
+      err.textContent = '';
+      try {
+        var res = await fetch(API_BASE + CONFIG.ENDPOINTS.login, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value
+          })
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok) {
+          err.textContent = (typeof data.detail === 'string') ? data.detail : 'Login failed';
+          return false;
+        }
+        setAccessToken(data.access_token);
+        window.location.href = 'index.html#home';
+      } catch (e) {
+        err.textContent = 'Cannot reach server';
+      }
+      return false;
+    }
+  </script>
+</body>
+</html>

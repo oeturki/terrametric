@@ -38,6 +38,9 @@
   <div class="sidebar-footer">
     <span class="status-dot" id="connDot"></span>
     <span id="connLabel">CONNECTING…</span>
+    <div style="margin-top:10px;">
+      <button type="button" class="btn btn-ghost" style="width:100%;font-size:11px;padding:6px" onclick="if(typeof clearAccessToken==='function'){clearAccessToken();} location.href='login.html';">Sign out</button>
+    </div>
   </div>
 </aside>
 
@@ -124,7 +127,8 @@
             <div class="esi-status" id="esiStatus" style="color:var(--bark-mid)">Awaiting data…</div>
           </div>
           <div style="margin-top:16px;">
-            <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">Recent Alerts</div>
+            <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;">Recent Alerts</div>
+            <div style="font-size:9px;color:var(--bark-mid);line-height:1.35;margin-bottom:8px;max-width:220px;">Persisted server alerts (text is fixed at breach time, not a live re-check of your current Control form).</div>
             <div id="alertFeed"><div style="font-size:10px;color:var(--bark-mid);padding:8px 0;">No alerts yet</div></div>
           </div>
         </div>
@@ -228,10 +232,14 @@
       <!-- ANOMALIES TAB -->
       <div class="tabpanel" id="tab-anomalies">
         <div class="anom-page">
+        <p id="anomTelemetryHint" style="font-size:11px;color:var(--bark-mid);margin:0 0 12px;max-width:48rem;line-height:1.55;">
+          <strong>Live charts and the event log</strong> use the same sample, time range, binning, and &ldquo;This recording only&rdquo; setting as the <strong>Graphs</strong> tab. Adjust those controls there, then open this tab or wait for the next refresh.
+        </p>
+        <div id="anomDataSourceBanner" class="anom-data-banner" role="status"></div>
 
-        <section class="anom-sim-toolbar" aria-label="Simulation parameters">
+        <section class="anom-sim-toolbar" aria-label="Synthetic lab parameters">
           <div class="anom-sim-toolbar__group">
-            <span class="anom-kicker">Synthetic run</span>
+            <span class="anom-kicker">Synthetic lab</span>
             <label class="anom-sr-only" for="simScenario">Scenario</label>
             <select class="select-pill anom-sim-toolbar__select" id="simScenario">
               <option value="stable">Stable</option>
@@ -253,8 +261,8 @@
             </div>
           </div>
           <div class="anom-sim-toolbar__actions">
-            <button type="button" class="btn btn-primary" id="simRunBtn" onclick="runAnomalySimulation()">Run simulation</button>
-            <button type="button" class="btn btn-ghost" onclick="clearAnomalySimulation()">Clear results</button>
+            <button type="button" class="btn btn-primary" id="simRunBtn" onclick="runAnomalySimulation()">Run synthetic lab</button>
+            <button type="button" class="btn btn-ghost" onclick="clearAnomalySimulation()">Clear lab &amp; show live</button>
           </div>
         </section>
 
@@ -294,6 +302,7 @@
           <div class="card-header anom-card-head">
             <span class="card-title">Per-sensor time series</span>
             <div class="anom-card-head__tools">
+              <button type="button" class="btn btn-ghost" style="font-size:10px;padding:4px 10px;" onclick="reprocessAnomalyWindow()" title="Replay rows in this window through detectors (same plant and hours as Graphs)">Reprocess window</button>
               <label class="anom-check-label">
                 <input type="checkbox" id="anomShowMarkers" checked onchange="renderAnomCharts()"> Event markers
               </label>
@@ -303,7 +312,7 @@
           <div id="anomChartWrap" class="anom-chart-host">
             <div class="anom-placeholder">
               <span class="anom-placeholder__glyph" aria-hidden="true">◇</span>
-              <p class="anom-placeholder__text">Configure a scenario and choose <strong>Run simulation</strong> to generate synthetic telemetry and detector output.</p>
+              <p class="anom-placeholder__text">Open the <strong>Graphs</strong> tab to set sample and range, or use <strong>Run synthetic lab</strong> below for an offline demo (not saved).</p>
             </div>
           </div>
         </section>
@@ -316,7 +325,7 @@
           </div>
           <div id="anomScoreWrap" class="anom-chart-host">
             <div class="anom-placeholder anom-placeholder--compact">
-              <p class="anom-placeholder__text">Scores appear after a successful simulation run.</p>
+              <p class="anom-placeholder__text">Severity-weighted scores appear when anomalies overlap the chart series.</p>
             </div>
           </div>
         </section>
@@ -403,20 +412,21 @@
   <div class="persistent-banner"><span class="banner-icon">⚠</span><span class="banner-text"></span><span class="banner-dismiss" onclick="dismissBanner()">✕</span></div>
   <div class="content">
     <div class="control-top">
-      <span class="group-label">Control Group:</span>
+      <span class="group-label">Sample:</span>
       <select class="group-select" id="groupSelect" onchange="fetchControls()">
-        <option value="1">Group 1</option>
-        <option value="2">Group 2</option>
+        <option value="">Loading samples…</option>
       </select>
       <span style="font-size:10px;color:var(--bark-mid);">
         Live readings update automatically. Edit thresholds and intervals, then hit Save.
+        Server threshold alerts use the sample that <strong>receives the reading</strong> (recording session or <code>TM_BRIDGE_PLANT_ID</code>); if that id differs from the sample selected here, alert bands will not match this form.
       </span>
     </div>
     <div class="sensor-grid">
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">🌡</div><div class="sensor-name">Temperature</div></div>
         <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="temp-min" value="20" min="-100" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="temp-max" value="30" min="0" max="100"><span class="unit">°C</span></div></div>
-        <div class="field-row"><span class="field-label">Tolerance Threshold</span><input class="field-input" id="warn-temp" value="28" placeholder="°C threshold" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div>
+        <div class="field-row"><span class="field-label">Tolerance (Home highlight)</span><div class="range-inputs"><input class="field-input" type="number" step="0.1" id="warn-temp-lo" value="" min="-100" max="100" placeholder="low °C" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"><span class="range-sep">to</span><input class="field-input" type="number" step="0.1" id="warn-temp" value="28" min="-100" max="100" placeholder="high °C" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div></div>
+        <div class="field-row" style="font-size:10px;color:var(--bark-mid);line-height:1.4;"><span>Automated server alerts use <strong>Desired</strong> min–max. Tolerance is an optional soft band for the Home / Control readouts (below low / above high). Leave “low” empty to only flag when too hot.</span></div>
         <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-temp" value="30" placeholder="seconds"></div>
       </div>
       <div class="sensor-card">
@@ -566,6 +576,7 @@
 <!-- ══════════════════════════════════════
      JAVASCRIPT — load in this order
 ══════════════════════════════════════ -->
+<script src="js/auth.js"></script>
 <script src="js/config.js"></script>     <!-- ← Edit this to connect your system  -->
 <script src="js/alerts.js"></script>     <!-- Toasts, bell, warning banner         -->
 <script src="js/charts.js"></script>     <!-- Sensor graph drawing                 -->

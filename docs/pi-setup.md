@@ -13,10 +13,10 @@ Raspberry Pi
   /dev/rfcomm0  (rfcomm bind)
   │  pi/arduino_bridge.py  -> POST /api/telemetry/ingest
   ▼
-FastAPI  (uvicorn main:app on port 8765)
+FastAPI  (uvicorn main:app on port 8000)
   │  attaches row to the open recording session
   ▼
-SQLite  +  Web UI at  http://<pi-ip>:8765/
+SQLite  +  Web UI at  http://<pi-ip>:8000/
 ```
 
 The Arduino sketch in [`arduino/arduino_bluetooth/arduino_bluetooth.ino`](../arduino/arduino_bluetooth/arduino_bluetooth.ino)
@@ -42,20 +42,20 @@ cd /home/pi/group-14-cm2305-2211/backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python -m uvicorn main:app --host 0.0.0.0 --port 8765
+python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 `--host 0.0.0.0` so your laptop/phone on the same LAN can reach
-`http://<pi-ip>:8765/`. The UI is served from `/`, the OpenAPI docs from `/docs`.
+`http://<pi-ip>:8000/`. The UI is served from `/`, the OpenAPI docs from `/docs`.
 
 If you want the UI hosted from your laptop to talk to the Pi, edit
 `frontend/js/config.js` so `PI_IP` matches the Pi's LAN IP. The default port
-(`8765`) already matches the server.
+(`8000`) already matches the server.
 
 Quick health check from the Pi itself:
 
 ```bash
-curl -s http://127.0.0.1:8765/health
+curl -s http://127.0.0.1:8000/health
 # -> {"status":"ok"}
 ```
 
@@ -118,7 +118,7 @@ Expected output:
 
 ```
 11:05:03 [bridge] INFO opening /dev/rfcomm0 @ 9600
-11:05:03 [bridge] INFO connected; forwarding to http://127.0.0.1:8765/api/telemetry/ingest (bt_name=Group14)
+11:05:03 [bridge] INFO connected; forwarding to http://127.0.0.1:8000/api/telemetry/ingest (bt_name=Group14)
 11:05:18 [bridge] INFO health: ok=68 bad=2 in last 15s
 ```
 
@@ -128,12 +128,12 @@ Environment overrides (optional):
 | --------------------- | ------------------------ | --------------------------------------------------- |
 | `TM_BRIDGE_PORT`      | `/dev/rfcomm0`           | Serial device to read                               |
 | `TM_BRIDGE_BAUD`      | `9600`                   | Must match the HC-05 (sketch uses 9600)             |
-| `TM_BRIDGE_API`       | `http://127.0.0.1:8765`  | Backend base URL                                    |
+| `TM_BRIDGE_API`       | `http://127.0.0.1:8000`  | Backend base URL                                    |
 | `TM_BRIDGE_BT_NAME`   | `Group14`                | Matches `AT+NAME` in the sketch + UI device record  |
 
 ## 5. Register the device and start recording (Web UI)
 
-1. On your laptop open `http://<pi-ip>:8765/`.
+1. On your laptop open `http://<pi-ip>:8000/`.
 2. Go to **Manage Samples** → select / save a sample so it has a server ID.
 3. In *Register new device* fill:
    - **Bluetooth name**: `Group14` (exact match — case-sensitive)
@@ -152,7 +152,7 @@ Environment overrides (optional):
 Pretend to be the bridge with `curl`:
 
 ```bash
-curl -s -X POST http://127.0.0.1:8765/api/telemetry/ingest \
+curl -s -X POST http://127.0.0.1:8000/api/telemetry/ingest \
   -H 'Content-Type: application/json' \
   -d '{"temperature":24.3,"humidity":58,"movement":false,"light":812,"distance":21,"bt_name":"Group14"}'
 ```
@@ -195,7 +195,7 @@ Wants=network-online.target
 [Service]
 User=pi
 WorkingDirectory=/home/pi/group-14-cm2305-2211/backend
-ExecStart=/home/pi/group-14-cm2305-2211/backend/.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8765
+ExecStart=/home/pi/group-14-cm2305-2211/backend/.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000
 Restart=on-failure
 
 [Install]

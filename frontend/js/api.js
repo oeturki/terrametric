@@ -5,13 +5,13 @@
 // ── Low-level fetch helpers ──────────────────
 
 async function apiFetch(path) {
-  const res = await fetch(API_BASE + path);
+  const res = await authFetch(API_BASE + path);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
 async function apiPost(path, body) {
-  const res = await fetch(API_BASE + path, {
+  const res = await authFetch(API_BASE + path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -20,8 +20,18 @@ async function apiPost(path, body) {
   return res.json();
 }
 
+async function apiPostNoBody(path) {
+  const res = await authFetch(API_BASE + path, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: '{}'
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 async function apiPut(path, body) {
-  const res = await fetch(API_BASE + path, {
+  const res = await authFetch(API_BASE + path, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -31,7 +41,7 @@ async function apiPut(path, body) {
 }
 
 async function apiDelete(path) {
-  const res = await fetch(API_BASE + path, { method: 'DELETE' });
+  const res = await authFetch(API_BASE + path, { method: 'DELETE' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   if (res.status === 204) return null;
   const text = await res.text();
@@ -58,15 +68,16 @@ function emitSamplesChanged(reason, plantId) {
 // ── Fetch all data at once ───────────────────
 
 async function fetchAll() {
+  // Samples must load before control profile: #groupSelect needs a plant_id, otherwise
+  // fetchControls bails and the form stays on static HTML defaults.
   await Promise.allSettled([
     fetchLatest(),
     fetchTelemetry(),
     fetchAlerts(),
     fetchAnomalies(),
-    fetchSamples(),
-    fetchControls(),
     fetchGallery(),
   ]);
+  await fetchSamples();
 }
 
 // ── Latest sensor readings ───────────────────
@@ -242,6 +253,11 @@ async function fetchTelemetry() {
       }
     }
     updateCharts(readings);
+    if (typeof syncAnomalyChartsFromTelemetryPayload === 'function'
+        && !window.anomSyntheticLabActive
+        && document.getElementById('tab-anomalies')?.classList.contains('active')) {
+      syncAnomalyChartsFromTelemetryPayload(d);
+    }
   } catch {
     const hint = document.getElementById('graphFilterHint');
     if (hint) { hint.style.display = 'none'; hint.textContent = ''; }
@@ -277,13 +293,30 @@ function generateFallbackTelemetry(hours = 24) {
 // ── Active alerts ────────────────────────────
 // Returns: [{ id, severity, title, message, timestamp, resolved }, …]
 
+const _seenAlertIds = new Set();
+const _SEEN_MAX = 400;
+
 async function fetchAlerts() {
   try {
     const data = await apiFetch(CONFIG.ENDPOINTS.alerts);
     const alerts = Array.isArray(data) ? data : data.alerts || [];
+    // Toasts for newly seen ids only; then bind home + bell from server (single source of truth).
     alerts.forEach(a => {
+      if (a.id != null) {
+        if (_seenAlertIds.has(a.id)) return;
+        if (_seenAlertIds.size >= _SEEN_MAX) {
+          _seenAlertIds.clear();
+        }
+        _seenAlertIds.add(a.id);
+      }
       fireAlert(a.severity, a.title, a.message, a.severity === 'danger' ? 0 : 8000);
     });
+    if (typeof renderHomeAlertFeedFromServer === 'function') {
+      renderHomeAlertFeedFromServer(alerts);
+    }
+    if (typeof syncServerAlertsToDropdown === 'function') {
+      syncServerAlertsToDropdown(alerts);
+    }
   } catch { /* alerts endpoint not ready yet */ }
 }
 
@@ -309,6 +342,12 @@ async function fetchSamples() {
     }
   } catch { /* use local trays */ }
   populateGraphSampleSelect(list);
+  if (typeof buildControlPlantSelectFromList === 'function') {
+    buildControlPlantSelectFromList(list);
+  }
+  if (typeof fetchControls === 'function') {
+    await fetchControls();
+  }
 }
 
 // Re-fetch the sample list (and therefore re-render every consumer) whenever
@@ -323,6 +362,7 @@ window.addEventListener('samples:changed', function () {
 // ── Save a plant sample ──────────────────────
 
 async function saveSample() {
+  const prev = trays[selectedTray] || {};
   const sample = {
     name:  document.getElementById('d-name').value  || 'Unnamed Plant',
     loc:   document.getElementById('d-loc').value,
@@ -330,26 +370,57 @@ async function saveSample() {
     notes: document.getElementById('d-notes').value,
     qr:    document.getElementById('d-qr').value,
   };
-  trays[selectedTray] = sample;
+  // Keep any server `id` (and other fields) if this save fails — old code dropped `id` and broke recording.
+  const merged = { ...prev, ...sample };
+  trays[selectedTray] = merged;
   buildTrayList();
   buildGalleryTabs();
   buildGalleryTimeline();
+  if (typeof updateRecordingButtonState === 'function') updateRecordingButtonState();
+
+  const existingId = merged.id;
+  const path = existingId
+    ? CONFIG.ENDPOINTS.plants + '/' + existingId
+    : CONFIG.ENDPOINTS.plants;
+  const method = existingId ? 'PUT' : 'POST';
+
   try {
-    let serverRow;
-    if (sample.id) {
-      serverRow = await apiPut(CONFIG.ENDPOINTS.plants + '/' + sample.id, sample);
-    } else {
-      serverRow = await apiPost(CONFIG.ENDPOINTS.plants, sample);
+    const res = await authFetch(API_BASE + path, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sample),
+    });
+    if (res.status === 401) {
+      return;
     }
+    if (!res.ok) {
+      let detail = 'HTTP ' + res.status;
+      const text = await res.text();
+      try {
+        const j = JSON.parse(text);
+        if (j.detail != null) {
+          detail = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail);
+        }
+      } catch (_) {
+        if (text) detail = text.length > 300 ? text.slice(0, 300) + '…' : text;
+      }
+      throw new Error(detail);
+    }
+    const serverRow = await res.json();
     if (serverRow && serverRow.id != null) {
       trays[selectedTray] = { ...trays[selectedTray], ...serverRow, id: serverRow.id };
       buildTrayList();
       if (typeof updateRecordingButtonState === 'function') updateRecordingButtonState();
-      emitSamplesChanged(sample.id ? 'updated' : 'created', serverRow.id);
+      emitSamplesChanged(existingId ? 'updated' : 'created', serverRow.id);
     }
-    fireAlert('ok', 'Sample Saved', 'Sample ' + (selectedTray + 1) + ' saved.', 4000);
-  } catch {
-    fireAlert('info', 'Saved Locally', 'Sample saved in browser. Will sync when the system connects.', 4000);
+    fireAlert('ok', 'Sample Saved', 'Sample ' + (selectedTray + 1) + ' saved to the server.', 4000);
+  } catch (e) {
+    const msg = e && e.message ? String(e.message) : 'Request failed';
+    if (e && e.name === 'TypeError' && (msg.indexOf('fetch') >= 0 || msg.indexOf('Load failed') >= 0 || msg.indexOf('NetworkError') >= 0)) {
+      fireAlert('danger', 'Save failed', 'Cannot reach the API at ' + API_BASE + '. Start the backend and ensure `PORT` in js/config.js matches the server (default 8000).', 9000);
+      return;
+    }
+    fireAlert('warning', 'Could not save on the server', msg + ' — Sign in at login.html if needed; the form data is still in this page.', 9000);
   }
 }
 

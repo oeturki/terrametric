@@ -7,6 +7,8 @@ from time import sleep
 
 
 API_URL = "http://127.0.0.1:8000/api/control?group=1"
+# FastAPI: per-plant profile (use a real plant_id from your DB / UI)
+API_URL = "http://127.0.0.1:8000/api/control?plant_id=1"
 
 controls_cache = None
 last_fetch_time = 0

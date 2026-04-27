@@ -122,6 +122,63 @@ function updateBellCount() {
   });
 }
 
+/**
+ * Home page "Recent Alerts" — always show latest server state (not gated by toast deduplication).
+ */
+function renderHomeAlertFeedFromServer(alerts) {
+  const feed = document.getElementById('alertFeed');
+  if (!feed) return;
+  feed.innerHTML = '';
+  if (!alerts || !alerts.length) {
+    const ph = document.createElement('div');
+    ph.style.cssText = 'font-size:10px;color:var(--bark-mid);padding:8px 0;';
+    ph.textContent = 'No active alerts from the server';
+    feed.appendChild(ph);
+    return;
+  }
+  alerts.slice(0, 5).forEach(a => {
+    const sev = a.severity === 'danger' ? 'danger' : (a.severity === 'info' ? 'info' : 'warning');
+    const item = document.createElement('div');
+    item.className = 'feed-item ' + sev;
+    const ts = a.timestamp
+      ? new Date(a.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '';
+    const icon = (SEV[sev] && SEV[sev].icon) || '⚠';
+    const title = (a.title != null && a.title !== '') ? a.title : (a.message ? String(a.message).slice(0, 40) : 'Alert');
+    const sub = a.message && a.title && a.message !== a.title ? a.message : (a.message || '');
+    item.innerHTML = `
+      <div class="feed-icon">${icon}</div>
+      <div>
+        <div class="feed-title">${title}</div>
+        <div class="feed-time">${ts}${sub && sub !== title ? ' — ' + sub : ''}</div>
+      </div>`;
+    feed.appendChild(item);
+  });
+}
+
+/**
+ * Bell dropdown: mirror active server alerts so the list matches the API even when toasts are deduped.
+ */
+function syncServerAlertsToDropdown(alerts) {
+  if (!Array.isArray(alerts)) return;
+  alertLog.length = 0;
+  alerts.slice(0, 30).forEach(a => {
+    const sev = a.severity === 'danger' ? 'danger' : (a.severity === 'info' ? 'info' : 'warning');
+    const ts = a.timestamp
+      ? new Date(a.timestamp).toLocaleString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    alertLog.push({
+      sev: sev,
+      title: a.title || a.variable || 'Alert',
+      msg: a.message || '',
+      ts: ts,
+      id: a.id != null ? 'srv-' + a.id : Date.now() + Math.random()
+    });
+  });
+  renderAlertLog();
+  updateBellCount();
+}
+
 function renderAlertLog() {
   const log = document.getElementById('alertLog');
   const empty = document.getElementById('logEmpty');
