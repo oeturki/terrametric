@@ -11,6 +11,28 @@ let galleryPhotos = {}; // keyed by sample QR code
 /** Set by /api/sessions/active — only one open session system-wide */
 let activeRecordingSession = null;
 
+/**
+ * Smallest TM-S### not already used in `trays` (and optionally `extraQrs` from the server).
+ * Avoids POST 409 when addTray used "length+1" while TM-S002 was already saved as id=7.
+ */
+function nextFreeTmQr(extraQrs) {
+  const used = new Set();
+  (trays || []).forEach(function (t) {
+    const q = (t && t.qr && String(t.qr).trim()) || '';
+    if (q) used.add(q.toUpperCase());
+  });
+  (extraQrs || []).forEach(function (q) {
+    if (q) used.add(String(q).trim().toUpperCase());
+  });
+  var n = 1;
+  var candidate;
+  do {
+    candidate = 'TM-S' + n.toString().padStart(3, '0');
+    n += 1;
+  } while (used.has(candidate.toUpperCase()));
+  return candidate;
+}
+
 // ── Tray list ────────────────────────────────
 
 function buildTrayList() {
@@ -88,7 +110,8 @@ function updateRecordingButtonState() {
 
 function addTray() {
   const n = trays.length + 1;
-  trays.push({ name: '', loc: '', germ: '', notes: '', qr: 'TM-S' + n.toString().padStart(3, '0') });
+  const qr = nextFreeTmQr();
+  trays.push({ name: '', loc: '', germ: '', notes: '', qr: qr });
   selectedTray = trays.length - 1;
   buildTrayList();
   selectTray(selectedTray);
@@ -186,7 +209,7 @@ async function deleteSampleFromServer() {
     fireAlert('ok', 'Sample deleted', labelName + ' was removed permanently.', 4000);
     // Optimistic local removal — fetchSamples (via samples:changed) will reconcile.
     trays.splice(selectedTray, 1);
-    if (!trays.length) trays.push({ name: '', loc: '', germ: '', notes: '', qr: 'TM-S001' });
+    if (!trays.length) trays.push({ name: '', loc: '', germ: '', notes: '', qr: nextFreeTmQr() });
     selectedTray = Math.max(0, Math.min(selectedTray, trays.length - 1));
     buildTrayList();
     selectTray(selectedTray);

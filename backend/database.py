@@ -24,6 +24,28 @@ def get_db():
         db.close()
 
 
+def _migrate_plants_qr_unique_per_owner(conn) -> None:
+    """Replace legacy UNIQUE(qr_code) with UNIQUE(owner_id, qr_code) for SQLite."""
+    from sqlalchemy import text
+
+    rows = conn.execute(text("PRAGMA index_list('plants')")).fetchall()
+    for row in rows:
+        unique = row[2] if len(row) > 2 else 0
+        if not unique:
+            continue
+        idx_name = row[1]
+        info = conn.execute(text(f'PRAGMA index_info("{idx_name}")')).fetchall()
+        col_names = [r[2] for r in info]
+        if col_names == ["qr_code"]:
+            conn.execute(text(f'DROP INDEX "{idx_name}"'))
+            break
+    exists = conn.execute(
+        text("SELECT 1 FROM sqlite_master WHERE type='index' AND name='uq_plants_owner_qr'")
+    ).fetchone()
+    if not exists:
+        conn.execute(text("CREATE UNIQUE INDEX uq_plants_owner_qr ON plants (owner_id, qr_code)"))
+
+
 def run_sqlite_migrations(engine) -> None:
     """
     Lightweight idempotent SQLite migrations applied on every startup. SQLAlchemy's
@@ -33,6 +55,7 @@ def run_sqlite_migrations(engine) -> None:
     Currently:
       * telemetry.plant_id (Phase 1 of the GMO research design)
       * recording_sessions.scenario / dummy_stream / stream_interval_sec (Phase 2)
+      * plants.created_by backfill from owner_id when NULL (supports list_plants reclaim)
     """
     if "sqlite" not in str(engine.url):
         return
@@ -78,6 +101,17 @@ def run_sqlite_migrations(engine) -> None:
 
         # Plants: per-user ownership (nullable until bootstrap_auth fills legacy owner)
         _add_col_if_missing(conn, "plants", "owner_id", "owner_id INTEGER")
+        _add_col_if_missing(conn, "plants", "created_by", "created_by INTEGER")
+        # Align created_by with owner when missing so list_plants reclaim can use created_by
+        conn.execute(
+            text(
+                "UPDATE plants SET created_by = owner_id "
+                "WHERE created_by IS NULL AND owner_id IS NOT NULL"
+            )
+        )
+
+        # QR was globally unique; scope (owner_id, qr_code) so different accounts can reuse TM-S001.
+        _migrate_plants_qr_unique_per_owner(conn)
 
         # FR10: persisted anomaly detector outputs (create_all only adds missing tables; old SQLite files need this).
         conn.execute(
@@ -160,8 +194,21 @@ def bootstrap_auth(engine) -> None:
 
         first = db.query(User).order_by(User.id.asc()).first()
         if first:
+            # 1) Prefer the account that created the row (avoids mis-assigning to user 1).
+            db.query(Plant).filter(Plant.owner_id.is_(None), Plant.created_by.isnot(None)).update(
+                {Plant.owner_id: Plant.created_by}, synchronize_session=False
+            )
+            # 2) Remaining orphan plants → first user (legacy / no created_by)
             db.query(Plant).filter(Plant.owner_id.is_(None)).update(
                 {Plant.owner_id: first.id}, synchronize_session=False
+            )
+            # 3) Fix rows where a prior bootstrap set owner to user 1 but created_by is another user
+            db.query(Plant).filter(
+                Plant.created_by.isnot(None),
+                Plant.owner_id != Plant.created_by,
+            ).update(
+                {Plant.owner_id: Plant.created_by},
+                synchronize_session="fetch",
             )
             db.query(RecordingSession).filter(
                 RecordingSession.started_by.is_(None),

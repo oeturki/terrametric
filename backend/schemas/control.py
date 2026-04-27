@@ -65,6 +65,61 @@ def validate_merged_profile(data: Dict[str, Any]) -> None:
         except (TypeError, ValueError):
             pass
     hum = data.get("humidity") or {}
-    hw = hum.get("warn")
-    if hw is not None and float(hw) > 100:
-        raise ValueError("Humidity tolerance cannot exceed 100%")
+    hmin, hmax = hum.get("min"), hum.get("max")
+    if hmin is not None and hmax is not None and float(hmin) >= float(hmax):
+        raise ValueError("Invalid humidity range (min must be less than max)")
+    hwl, hwh = hum.get("warn_low"), hum.get("warn")
+    if hwl is not None and hwh is not None:
+        try:
+            if float(hwl) >= float(hwh):
+                raise ValueError("Humidity tolerance low must be less than tolerance high")
+        except (TypeError, ValueError):
+            pass
+    for v in (hwh, hwl):
+        if v is not None:
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                pass
+            else:
+                if fv > 100 or fv < 0:
+                    raise ValueError("Humidity tolerance values must be between 0 and 100%")
+
+    light = data.get("light") or {}
+    lmin, lmax = light.get("min"), light.get("max")
+    if lmin is not None and lmax is not None and float(lmin) >= float(lmax):
+        raise ValueError("Invalid light range (min must be less than max)")
+    lwl, lwh = light.get("warn_low"), light.get("warn")
+    if lwl is not None and lwh is not None:
+        try:
+            if float(lwl) >= float(lwh):
+                raise ValueError("Light tolerance low must be less than tolerance high")
+        except (TypeError, ValueError):
+            pass
+
+    motion = data.get("motion") or {}
+    mmin, mmax = motion.get("min"), motion.get("max")
+    if mmin is not None and mmax is not None and float(mmin) >= float(mmax):
+        raise ValueError("Invalid motion range (min must be less than max)")
+    mwl, mwh = motion.get("warn_low"), motion.get("warn")
+    if mwl is not None and mwh is not None:
+        try:
+            wl, wh = float(mwl), float(mwh)
+        except (TypeError, ValueError):
+            pass
+        else:
+            if wl >= wh:
+                raise ValueError("Motion tolerance low must be less than tolerance high")
+            if wl < 0 or wh > 1:
+                raise ValueError("Motion soft tolerances must be between 0 and 1 (PIR maps to 0/1)")
+    height = data.get("height") or {}
+    htmin, htmax = height.get("min"), height.get("max")
+    if htmin is not None and htmax is not None and float(htmin) >= float(htmax):
+        raise ValueError("Invalid height range (min must be less than max)")
+    ywl, ywh = height.get("warn_low"), height.get("warn")
+    if ywl is not None and ywh is not None:
+        try:
+            if float(ywl) >= float(ywh):
+                raise ValueError("Height tolerance low must be less than tolerance high")
+        except (TypeError, ValueError):
+            pass
