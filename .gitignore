@@ -42,6 +42,9 @@ desktop.ini
 .env.local
 .env.*.local
 ./backend/readingDB/.env
+# Bench-specific IPs / BLE MAC — copy from *.env.example, keep private names not committed:
+pi/terrametric-pi.local.env
+backend/terrametric-laptop.local.env
 
 # Database
 *.db
