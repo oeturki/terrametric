@@ -276,3 +276,4 @@ if __name__ == "__main__":
 
 
 # control motor based on desired and tolerance + connect to controlling motor/fan
+# validation for user input

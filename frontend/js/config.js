@@ -16,7 +16,7 @@ const CONFIG = {
   // ── Default thresholds ─────────────────────────────
   //    (can also be changed live on the Control Variables page)
   DEFAULTS: {
-    temp_min: 15,
+    temp_min: 20,
     temp_max: 30,
     temp_warn_high: 50,  // high °C (soft, Home)
     temp_warn_low: 10,  // low °C 
@@ -24,20 +24,20 @@ const CONFIG = {
     hum_min: 20,
     hum_max: 40,
     hum_warn_high: 80,   // %
-    hum_warn_low: 20,    // %
+    hum_warn_low: 10,    // %
     hum_interval: 60, // seconds
     light_min: 5000,
     light_max: 10000,
-    light_warn_high: 500,  // lux
-    light_warn_low: 100,
+    light_warn_high: 11000,  // lux
+    light_warn_low: 3000,
     light_interval: 60, // seconds
     motion_min: 0,
     motion_max: 1,
     motion_interval: 20, // seconds
-    height_min: 0,
+    height_min: 500,
     height_max: 10000,
-    height_warn_high: 5,   // cm
-    height_warn_low: null,
+    height_warn_high: 11000,   // cm
+    height_warn_low: 100,
     height_interval: 1440,   // minutes
     cam_on_motion: 0,
     cam_on_alert: 0,
