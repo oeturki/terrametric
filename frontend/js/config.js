@@ -18,17 +18,17 @@ const CONFIG = {
   DEFAULTS: {
     temp_min: 20,
     temp_max: 30,
-    temp_warn_high: 50,  // high °C (soft, Home)
+    temp_warn_high: 35,  // high °C (soft, Home)
     temp_warn_low: 10,  // low °C 
     temp_int: 60,   // seconds
     hum_min: 20,
-    hum_max: 40,
+    hum_max: 65,
     hum_warn_high: 80,   // %
     hum_warn_low: 10,    // %
     hum_interval: 30, // seconds
     light_min: 5000,
-    light_max: 10000,
-    light_warn_high: 11000,  // lux
+    light_max: 25000,
+    light_warn_high: 30000,  // lux
     light_warn_low: 3000,
     light_interval: 15, // seconds
     motion_min: 0,
@@ -41,7 +41,7 @@ const CONFIG = {
     height_interval: 120,   // seconds
     cam_on_motion: 0,
     cam_on_alert: 0,
-    cam_interval: 60,  //change this-its not minutes
+    cam_interval: 60,
   },
 
   // ── API endpoint paths ─────────────────────────────────────
@@ -283,10 +283,10 @@ function getControlData() {
       let minutes = 60;
       if (intEl) {
         if (intEl.tagName === "SELECT") {
-          const m = { "1h": 60, "12h": 720, "24h": 1440, "1w": 10080, custom: 60 };
+          const m = { "1h": 60, "12h": 720, "24h": 1440, "1w": 10080};
           minutes = m[intEl.value] != null ? m[intEl.value] : 60;
         } else {
-          minutes = parseInt(intEl.value, 10) || 60;
+          minutes = parseInt(intEl.value, 10) || 60; //default to 60 otherwise use map
         }
       }
       const motion = document.getElementById("cam-on-motion");
