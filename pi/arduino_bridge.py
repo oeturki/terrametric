@@ -16,8 +16,14 @@ Design notes
 * Reconnect loop: if the serial link drops (e.g. HC-05 goes out of range, or
   `rfcomm` gets released) we retry every RETRY_SECONDS without exiting, so the
   systemd unit never has to restart us for transient link loss.
+* Optional **servo on the same Bluetooth link**: set `TM_BRIDGE_CMD_SERVER=1` to
+  bind `POST /servo` on 127.0.0.1 (default `TM_BRIDGE_CMD_PORT=18765`). The body
+  is a line like `S90\n`, written to the open serial. Use this when the Pi has
+  **no** USB serial to the Arduino: run `hardware_agent` with
+  `TERRA_ARDUINO_CMD_URL=http://127.0.0.1:18765/servo` so one process owns
+  ``/dev/rfcomm0``.
 * Keep third-party deps minimal: only `pyserial` and `requests`. No asyncio,
-  no MQTT, no Node-RED required for the happy path.
+  no MQTT, no Node-RED required for the happy path (stdlib `http.server` for cmd).
 
 Configuration (env vars override defaults):
     TM_BRIDGE_PORT      serial device (default /dev/rfcomm0)
@@ -28,6 +34,8 @@ Configuration (env vars override defaults):
     TM_BRIDGE_PLANT_ID  optional int — sample/plant id from Manage Samples. When set, each
                         ingest includes ``plant_id`` so threshold alerts work even with no
                         open recording session (set to the same id as the sample you control).
+    TM_BRIDGE_CMD_SERVER  0/1 — POST /servo on 127.0.0.1 (default 0; set 1 for BT-only servo)
+    TM_BRIDGE_CMD_PORT    port for the command server (default 18765)
 
 Usage:
     pip install pyserial requests
@@ -41,7 +49,9 @@ import logging
 import os
 import signal
 import sys
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, Optional
 
 try:
@@ -70,6 +80,7 @@ INGEST_PATH = "/api/telemetry/ingest"
 RETRY_SECONDS = 3
 HTTP_TIMEOUT = 3
 SERIAL_TIMEOUT = 2
+_CMD_PORT_DEFAULT = 18765
 
 # Only forward rows that contain at least one of these numeric keys. Guards
 # against noise / partial lines ("Started\r\n" at boot, AT command echoes).
@@ -118,11 +129,71 @@ def _post(session: requests.Session, payload: Dict[str, Any]) -> Optional[Dict[s
         return None
 
 
+def _start_cmd_server(ser: "serial.Serial") -> Optional[tuple[HTTPServer, threading.Thread]]:
+    """Localhost POST /servo → write lines to the same serial as telemetry (BT-only servo)."""
+    if os.environ.get("TM_BRIDGE_CMD_SERVER", "0").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return None
+    try:
+        cmd_port = int(os.environ.get("TM_BRIDGE_CMD_PORT", str(_CMD_PORT_DEFAULT)))
+    except ValueError:
+        log.warning("TM_BRIDGE_CMD_PORT is not an integer, cmd server disabled")
+        return None
+
+    write_lock = threading.Lock()
+
+    class _CmdH(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802
+            if self.path not in ("/", "/servo"):
+                self.send_error(404, "use POST /servo or POST /")
+                return
+            try:
+                n = int(self.headers.get("Content-Length", "0") or 0)
+            except ValueError:
+                n = 0
+            body = self.rfile.read(n) if n else b""
+            if not body:
+                self.send_error(400, "empty body (e.g. S90\\n)")
+                return
+            b = body if body.endswith(b"\n") else body + b"\n"
+            try:
+                with write_lock:
+                    ser.write(b)
+                    ser.flush()
+            except OSError as e:
+                self.send_error(500, str(e)[:200])
+                return
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, _format: str, *_args) -> None:  # noqa: A003
+            pass
+
+    try:
+        server = HTTPServer(("127.0.0.1", cmd_port), _CmdH)  # noqa: S104 (localhost only)
+    except OSError as e:
+        log.warning("cmd server bind 127.0.0.1:%s failed: %s (skip)", cmd_port, e)
+        return None
+    t = threading.Thread(
+        target=server.serve_forever,
+        name="arduino-bridge-cmd",
+        daemon=True,
+    )
+    t.start()
+    log.info("cmd server: POST http://127.0.0.1:%s/servo  (e.g. body S90)", cmd_port)
+    return (server, t)
+
+
 def _run_once(http: requests.Session) -> None:
     """One full serial session. Returns on error so caller can retry."""
     log.info("opening %s @ %s", PORT, BAUD)
     ser = serial.Serial(PORT, BAUD, timeout=SERIAL_TIMEOUT)
+    cmd: Optional[tuple[HTTPServer, threading.Thread]] = None
     try:
+        cmd = _start_cmd_server(ser)
         log.info(
             "connected; forwarding to %s (bt_name=%s, plant_id=%s)",
             API_BASE + INGEST_PATH,
@@ -168,6 +239,16 @@ def _run_once(http: requests.Session) -> None:
                 lines_bad = 0
                 last_log = now
     finally:
+        if cmd is not None:
+            srv, _th = cmd
+            try:
+                srv.shutdown()
+            except Exception:
+                pass
+            try:
+                srv.server_close()
+            except Exception:
+                pass
         try:
             ser.close()
         except Exception:

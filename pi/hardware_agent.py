@@ -10,9 +10,13 @@ Run (on the Pi):
   # --- Ventilation: Pi GPIO (default) ---
   # export SERVO_PIN=5
   # export USE_PIGPIO=0
-  # --- Ventilation: Arduino on USB (opt-in, avoids Pi5 PWM issues; servo on Arduino D6) ---
+  # --- Ventilation: Arduino on USB (opt-in; servo on Arduino D6) ---
   # export TERRA_USE_ARDUINO_SERVO=1
   # export TERRA_ARDUINO_PORT=/dev/ttyACM0
+  # --- Or Arduino only on Bluetooth (same link as arduino_bridge.py): ---
+  # export TERRA_USE_ARDUINO_SERVO=1
+  # export TERRA_ARDUINO_CMD_URL=http://127.0.0.1:18765/servo
+  # On the Pi: TM_BRIDGE_CMD_SERVER=1 when running arduino_bridge.py
   # pip install pyserial
   uvicorn hardware_agent:app --host 0.0.0.0 --port 8765
 
@@ -26,6 +30,8 @@ from __future__ import annotations
 import io
 import os
 import time
+import urllib.error
+import urllib.request
 from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException
@@ -38,6 +44,8 @@ SERVO_PIN = int(os.environ.get("SERVO_PIN", "5"))
 USE_PIGPIO = os.environ.get("USE_PIGPIO", "").strip().lower() in ("1", "true", "yes")
 # Opt-in: drive servo on Arduino (USB serial S###) instead of Pi GPIO — no GPIO PWM on the Pi in this mode.
 USE_ARDUINO_SERVO = os.environ.get("TERRA_USE_ARDUINO_SERVO", "").strip().lower() in ("1", "true", "yes")
+# When set, servo lines are POSTed here (e.g. arduino_bridge BT cmd server) instead of opening USB serial.
+ARDUINO_CMD_URL = (os.environ.get("TERRA_ARDUINO_CMD_URL") or "").strip()
 ARDUINO_PORT = (os.environ.get("TERRA_ARDUINO_PORT") or "/dev/ttyACM0").strip()
 ARDUINO_BAUD = int(os.environ.get("TERRA_ARDUINO_BAUD", "9600"))
 
@@ -98,7 +106,7 @@ def _capture_jpeg_bytes() -> bytes:
     return buf.getvalue()
 
 
-# --- Optional: ventilate via Arduino (USB) — see TERRA_USE_ARDUINO_SERVO, arduino/arduino_bluetooth -- Servo on D6 ---
+# --- Optional: ventilate via Arduino (USB or BT bridge) — TERRA_USE_ARDUINO_SERVO, Servo on D6 in sketch ---
 _arduino_serial = None  # type: ignore[var-annotated]
 
 
@@ -123,17 +131,49 @@ def _get_arduino_serial():
             status_code=503,
             detail=(
                 f"Arduino USB not available at {ARDUINO_PORT} ({e!s}). "
-                "Plug Arduino into the Pi, check dmesg for ttyACM* / ttyUSB*, or set TERRA_USE_ARDUINO_SERVO=0 to use Pi GPIO only."
+                "Plug the Arduino into the Pi, check dmesg for ttyACM* / ttyUSB*, "
+                "or use TERRA_ARDUINO_CMD_URL (arduino_bridge on Bluetooth) or set TERRA_USE_ARDUINO_SERVO=0 for Pi GPIO only."
             ),
         ) from e
 
 
 def _arduino_set_angle(deg: float) -> None:
-    ser = _get_arduino_serial()
     d = int(max(0, min(180, round(deg))))
-    ser.write(f"S{d}\n".encode("ascii"))
-    ser.flush()
+    line = f"S{d}\n"
+    if ARDUINO_CMD_URL:
+        data = line.encode("ascii")
+        req = urllib.request.Request(
+            ARDUINO_CMD_URL,
+            data=data,
+            method="POST",
+            headers={"Content-Type": "text/plain; charset=ascii"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                if int(resp.status) != 200:  # type: ignore[arg-type]
+                    raise OSError("unexpected status from bridge")
+        except urllib.error.HTTPError as e:
+            raise HTTPException(
+                503,
+                detail=f"Arduino command bridge at {ARDUINO_CMD_URL} returned HTTP {e.code}",
+            ) from e
+        except urllib.error.URLError as e:
+            raise HTTPException(
+                503,
+                detail=(
+                    f"Could not reach Arduino command bridge at {ARDUINO_CMD_URL} ({e!s}). "
+                    "On the Pi: run arduino_bridge.py with TM_BRIDGE_CMD_SERVER=1 and the same port as the URL path."
+                ),
+            ) from e
+    else:
+        ser = _get_arduino_serial()
+        ser.write(line.encode("ascii"))
+        ser.flush()
     time.sleep(0.02)
+
+
+def _arduino_vent_path() -> str:
+    return ARDUINO_CMD_URL if ARDUINO_CMD_URL else f"USB {ARDUINO_PORT}"
 
 
 def _arduino_spin_sweep() -> tuple[float, str]:
@@ -142,26 +182,27 @@ def _arduino_spin_sweep() -> tuple[float, str]:
     for a in pattern:
         _arduino_set_angle(float(a))
         time.sleep(step_s)
-    return 90.0, f"Arduino sweep on {ARDUINO_PORT} ({len(pattern)} steps), rest 90°"
+    return 90.0, f"Arduino sweep ({len(pattern)} steps), rest 90° ({_arduino_vent_path()})"
 
 
 def _apply_ventilation_arduino(body: VentilationBody) -> tuple[float, str]:
+    path = _arduino_vent_path()
     if body.angle is not None:
         ang = max(0.0, min(180.0, float(body.angle)))
         _arduino_set_angle(ang)
-        return ang, f"Arduino servo {ang}° (USB {ARDUINO_PORT})"
+        return ang, f"Arduino servo {ang}° ({path})"
     if body.on is False:
         _arduino_set_angle(0.0)
-        return 0.0, f"Arduino servo 0° ({ARDUINO_PORT})"
+        return 0.0, f"Arduino servo 0° ({path})"
     if body.on is True and body.spin:
         return _arduino_spin_sweep()
     if body.on is True and not body.spin:
         _arduino_set_angle(90.0)
-        return 90.0, f"Arduino servo 90° (no sweep) ({ARDUINO_PORT})"
+        return 90.0, f"Arduino servo 90° (no sweep) ({path})"
     if body.spin:
         return _arduino_spin_sweep()
     _arduino_set_angle(90.0)
-    return 90.0, f"Arduino servo 90° ({ARDUINO_PORT})"
+    return 90.0, f"Arduino servo 90° ({path})"
 
 
 _servo = None
@@ -289,9 +330,14 @@ def _apply_ventilation(body: VentilationBody) -> tuple[float, str]:
 def health():
     """Public: use from the laptop to verify `ping` + TCP (no key required)."""
     m: dict = {"status": "ok", "service": "terrametric_hardware_agent"}
-    m["ventilation"] = "arduino_usb" if USE_ARDUINO_SERVO else "pi_gpio"
+    m["ventilation"] = "pi_gpio"
     if USE_ARDUINO_SERVO:
-        m["arduino_port"] = ARDUINO_PORT
+        if ARDUINO_CMD_URL:
+            m["ventilation"] = "arduino_bluetooth"
+            m["arduino_cmd_url"] = ARDUINO_CMD_URL
+        else:
+            m["ventilation"] = "arduino_usb"
+            m["arduino_port"] = ARDUINO_PORT
     return m
 
 
