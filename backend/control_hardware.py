@@ -70,7 +70,7 @@ def take_photo(reason, plant_id):
         print(f"⚠ Camera failed for plant_id={plant_id}: {e}")
         return False
 
-def read_sensors(plant_id=1):
+def read_sensors(plant_id: int):
     """Read latest sensor data from telemetry database"""
     try:
         db = SessionLocal()
@@ -227,7 +227,7 @@ if __name__ == "__main__":
 
 
 # read every interval,  
-# plant id - not just group 1, read interval time
+# read interval time
 # validation
 # control motor based on desired and tolerance
 # connect to controlling motor/fan,
