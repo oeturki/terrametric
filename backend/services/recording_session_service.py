@@ -3,7 +3,7 @@ One active recording session globally: starting a new session ends all others.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
@@ -15,7 +15,7 @@ from models.session import RecordingSession
 
 def close_all_open_sessions(db: Session) -> int:
     """Set ended_at = now on every session that is still open. Returns count closed."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     q = db.query(RecordingSession).filter(RecordingSession.ended_at.is_(None))
     n = 0
     for row in q.all():
@@ -31,7 +31,7 @@ def close_open_sessions_for_user(db: Session, user_id: Optional[int]) -> int:
     End open sessions owned by ``user_id``. When ``user_id`` is None (legacy callers),
     fall back to closing **all** open sessions (backward-compatible single-lab behavior).
     """
-    now = datetime.utcnow()
+    now = ()
     q = db.query(RecordingSession).filter(RecordingSession.ended_at.is_(None))
     if user_id is not None:
         q = q.filter(RecordingSession.started_by == user_id)
