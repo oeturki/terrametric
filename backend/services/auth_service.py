@@ -4,7 +4,7 @@ Password hashing and JWT creation for API auth.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import bcrypt
@@ -27,7 +27,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(*, user_id: int, email: str) -> str:
-    expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     payload: dict[str, Any] = {
         "sub": str(user_id),
         "email": email,
@@ -59,15 +59,13 @@ def get_user_by_email(db: Session, email: str) -> Optional[User]:
     norm = email.strip().lower()
     return db.query(User).filter(User.email == norm).first()
 
-
-def create_user(
-    db: Session,
-    email: str,
-    password: str,
-    *,
-    is_admin: bool = False,
-) -> User:
+def create_user(db: Session, email: str, password: str, *, is_admin: bool = False) -> User:
     norm = email.strip().lower()
+
+    existing = get_user_by_email(db, norm)
+    if existing:
+        raise ValueError("user_already_exists")  # or just return existing
+
     u = User(
         email=norm,
         password_hash=hash_password(password),
@@ -78,7 +76,6 @@ def create_user(
     db.commit()
     db.refresh(u)
     return u
-
 
 def authenticate(db: Session, email: str, password: str) -> Optional[User]:
     u = get_user_by_email(db, email)
