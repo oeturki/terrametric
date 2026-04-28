@@ -51,6 +51,14 @@ for f in arduino_bridge.py hardware_agent.py; do
   fi
 done
 
+# Drop any stale BlueZ session to the HC-05 so RFCOMM can open (fixes Errno 16 "Device or resource busy").
+if [[ -n "${TM_BRIDGE_BT_MAC:-}" ]] && command -v bluetoothctl >/dev/null 2>&1; then
+  _mac="${TM_BRIDGE_BT_MAC//-/:}"
+  echo "[terrametric-pi] bluetoothctl disconnect $_mac (frees SPP; errors OK) ..." >&2
+  bluetoothctl disconnect "$_mac" 2>/dev/null || true
+  sleep 1
+fi
+
 cleanup() {
   if [[ -n "${BRIDGE_PID:-}" ]] && kill -0 "$BRIDGE_PID" 2>/dev/null; then
     kill "$BRIDGE_PID" 2>/dev/null || true

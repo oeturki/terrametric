@@ -259,6 +259,11 @@ def _start_cmd_server(transp: Any) -> Optional[tuple[HTTPServer, threading.Threa
             except OSError as e:
                 self.send_error(500, str(e)[:200])
                 return
+            try:
+                preview = b.decode("ascii", errors="replace").strip().replace("\n", "\\n")
+                log.info("cmd -> HC-05 link: %s", preview[:80])
+            except Exception:
+                pass
             self.send_response(200)
             self.end_headers()
 
