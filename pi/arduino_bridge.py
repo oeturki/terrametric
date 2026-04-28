@@ -214,7 +214,12 @@ def _post(session: requests.Session, payload: Dict[str, Any]) -> Optional[Dict[s
         log.warning("POST failed: %s", e)
         return None
     if r.status_code >= 400:
-        log.warning("ingest %s -> %s %s", r.status_code, r.reason, r.text[:200])
+        log.warning(
+            "ingest %s -> %s %s",
+            r.status_code,
+            r.reason,
+            (r.text or "")[:500],
+        )
         return None
     try:
         return r.json()
@@ -304,6 +309,7 @@ def _run_once(http: requests.Session) -> None:
         lines_ok = 0
         lines_bad = 0
         last_log = time.time()
+        last_bad_log = 0.0
         while True:
             try:
                 raw_bytes = transp.readline()
@@ -324,6 +330,15 @@ def _run_once(http: requests.Session) -> None:
             payload = _parse_line(raw)
             if payload is None:
                 lines_bad += 1
+                now_bad = time.time()
+                # AT responses (OK, ERROR), partial lines, or noise — throttle so logs stay useful.
+                if lines_bad == 1 or now_bad - last_bad_log >= 5.0:
+                    snippet = repr(raw.strip()[:200])
+                    log.warning(
+                        "not JSON telemetry (Arduino should print one {\"…\"} per line): %s",
+                        snippet,
+                    )
+                    last_bad_log = now_bad
                 continue
 
             payload["bt_name"] = BT_NAME

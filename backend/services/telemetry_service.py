@@ -61,7 +61,7 @@ def store_telemetry_row(
     if plant_id is not None:
         open_sess = get_open_session_for_plant(db, plant_id)
     else:
-        open_sess = None  # do NOT guess
+        open_sess = get_any_open_session(db)
     sid = open_sess.id if open_sess else None
     pid = open_sess.plant_id if open_sess else None
     if pid is None and plant_id is not None:
