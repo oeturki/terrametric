@@ -19,12 +19,18 @@
 #include <Servo.h>
 #include <ctype.h>
 
-// Set 0 when the Pi sends servo commands on USB (S### / Z) — Bluetooth bridge still gets JSON; USB stays clean.
+// Mirror each JSON telemetry line to the USB Serial Monitor (9600) for Arduino IDE debugging.
+// Set to 0 only if USB must stay dedicated to Pi commands (rare — Pi normally uses HC-05 bridge, not USB).
 #ifndef TERRA_TELEM_JSON_TO_USB
-#define TERRA_TELEM_JSON_TO_USB 0
+#define TERRA_TELEM_JSON_TO_USB 1
 #endif
-// Ventilation servo signal: D6 only. D5 is the ultrasonic trigger/echo (loop toggles it often) — a motor on D5 will twitch/spin on its own.
+// Ventilation servo (Lab1_courseware often used myservo.attach(5).)
+// This sketch keeps pin 5 for HC-SR04 distance — use pin 6 for the servo signal (or reassign ultrasonic first).
 #define SERVO_SIGNAL_PIN 6
+// Lab1-style settle time after each write (ms). Set 0 to disable.
+#ifndef SERVO_SETTLE_MS
+#define SERVO_SETTLE_MS 15
+#endif
 
 // 2. Assign pins for the SoftwareSerial (Bluetooth) module and the PIR sensor.
 #define RxD 8    // Arduino RX pin for Bluetooth
@@ -75,6 +81,9 @@ static void servoApplyAngle(int a) {
     g_servo_pwm_attached = true;
   }
   terrametricServo.write(a);
+#if SERVO_SETTLE_MS > 0
+  delay(SERVO_SETTLE_MS);
+#endif
 }
 
 static void servoDetachPwm() {
