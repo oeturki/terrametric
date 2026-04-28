@@ -5,7 +5,7 @@
 const CONFIG = {
 
   // ── Server IP address and port ─────────────────────────────
-  PI_IP:  '127.0.0.1',   // e.g. '192.168.1.42'
+  PI_IP:  '127.0.0.1',   // Same machine: 127.0.0.1. From another device on LAN use '10.3.25.73' (bench laptop)
   PORT:   8000,
 
   // ── How often to refresh data (milliseconds) ───────────────

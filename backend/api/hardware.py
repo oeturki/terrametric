@@ -39,6 +39,29 @@ def _require_pi_config() -> str:
     return base
 
 
+def _raise_unless_pi_ok(r: httpx.Response) -> None:
+    """Map Pi proxy errors to FastAPI HTTPException (better copy for device-key mismatch)."""
+    if r.status_code == 200:
+        return
+    detail = r.text[:2000] if r.text else f"status {r.status_code}"
+    if r.status_code == 401:
+        try:
+            j = r.json()
+            if isinstance(j, dict) and str(j.get("detail", "")).strip() == "Invalid or missing X-Device-Key":
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Pi rejected X-Device-Key: set DEVICE_KEY on the Pi (in .env) to exactly match "
+                        "HARDWARE_PI_KEY in backend/.env on this laptop, then restart ./start_terrametric_pi.sh."
+                    ),
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+    raise HTTPException(status_code=502, detail=f"Pi error: {detail}")
+
+
 class VentilationBody(BaseModel):
     on: bool | None = None
     angle: float | None = None
@@ -59,8 +82,7 @@ async def hardware_capture(_: User = Depends(get_current_user)):
         raise HTTPException(status_code=504, detail="Pi camera capture timed out") from e
 
     if r.status_code != 200:
-        detail = r.text[:2000] if r.text else f"status {r.status_code}"
-        raise HTTPException(status_code=502, detail=f"Pi error: {detail}")
+        _raise_unless_pi_ok(r)
     ct = r.headers.get("content-type", "image/jpeg")
     return Response(content=r.content, media_type=ct)
 
@@ -82,12 +104,5 @@ async def hardware_ventilation(
         raise HTTPException(status_code=504, detail="Pi ventilation command timed out") from e
 
     if r.status_code != 200:
-        detail = r.text[:2000] if r.text else f"status {r.status_code}"
-        try:
-            j = r.json()
-            if isinstance(j, dict) and j.get("detail"):
-                detail = str(j["detail"])
-        except Exception:
-            pass
-        raise HTTPException(status_code=502, detail=detail)
+        _raise_unless_pi_ok(r)
     return r.json()

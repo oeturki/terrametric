@@ -2,10 +2,22 @@
 Centralised configuration: database, MQTT broker, setpoints, thresholds.
 """
 
-from pydantic_settings import BaseSettings
+from pathlib import Path
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Always load backend/.env regardless of process cwd (fixes missing HARDWARE_PI_KEY when
+# uvicorn is started from the repo root).
+_ENV_FILE = Path(__file__).resolve().parent / ".env"
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8-sig",
+        extra="ignore",
+    )
     # Database
     DATABASE_URL: str = "sqlite:///./greenhouse.db"
 
@@ -57,7 +69,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
 
     # Proxy to the Pi hardware agent (see `pi/hardware_agent.py`). Set on the *laptop* Uvicorn host only.
-    HARDWARE_PI_BASE: str = ""  # e.g. http://192.168.1.42:8765
+    HARDWARE_PI_BASE: str = ""  # e.g. http://10.4.247.246:8765 when hardware_agent runs on the Pi LAN IP
     HARDWARE_PI_KEY: str = ""  # same as DEVICE_KEY on the Pi; never expose to the browser
 
     # Demo: POST /api/auth/register-admin requires this body field ``admin_secret`` when set
@@ -68,8 +80,12 @@ class Settings(BaseSettings):
     TERRA_DEMO_EMAIL: str = "demo@example.com"
     TERRA_DEMO_PASSWORD: str = "demo"
 
-    class Config:
-        env_file = ".env"
+    @field_validator("HARDWARE_PI_KEY", "HARDWARE_PI_BASE", mode="before")
+    @classmethod
+    def _strip_hardware_env(cls, v: object) -> str:
+        if v is None:
+            return ""
+        return str(v).strip()
 
 
 settings = Settings()

@@ -17,12 +17,13 @@
 #include <SoftwareSerial.h>
 #include <DHT.h>
 #include <Servo.h>
+#include <ctype.h>
 
-// Set 0 when the Pi sends servo commands on USB (S###) — Bluetooth bridge still gets JSON; USB stays clean.
+// Set 0 when the Pi sends servo commands on USB (S### / Z) — Bluetooth bridge still gets JSON; USB stays clean.
 #ifndef TERRA_TELEM_JSON_TO_USB
 #define TERRA_TELEM_JSON_TO_USB 0
 #endif
-// Servo signal on D6 (per shield wiring). Do not use pin 5 here — pin 5 is ULTRASONIC in this sketch.
+// Ventilation servo signal: D6 only. D5 is the ultrasonic trigger/echo (loop toggles it often) — a motor on D5 will twitch/spin on its own.
 #define SERVO_SIGNAL_PIN 6
 
 // 2. Assign pins for the SoftwareSerial (Bluetooth) module and the PIR sensor.
@@ -55,7 +56,7 @@ void setup()
   pinMode(RxD, INPUT);
   pinMode(TxD, OUTPUT);
   dht.begin();
-  terrametricServo.attach(SERVO_SIGNAL_PIN);
+  /* Servo: attach lazily on first S### from Pi; stay detached at boot so PWM is off until ventilation. */
 
   // 6. Set up the Bluetooth module
   setupBlueToothConnection();
@@ -65,36 +66,73 @@ void setup()
   blueToothSerial.flush();
 }
 
-// Pi (hardware_agent) can send e.g. S90 on USB; angle 0-180. Buffer one line.
-void readUsbServoLines()
-{
-  static String line;
-  while (Serial.available() > 0) {
-    char c = (char)Serial.read();
-    if (c == '\r') { continue; }
+static bool g_servo_pwm_attached = false;
+
+static void servoApplyAngle(int a) {
+  a = constrain(a, 0, 180);
+  if (!g_servo_pwm_attached) {
+    terrametricServo.attach(SERVO_SIGNAL_PIN);
+    g_servo_pwm_attached = true;
+  }
+  terrametricServo.write(a);
+}
+
+static void servoDetachPwm() {
+  if (g_servo_pwm_attached) {
+    terrametricServo.detach();
+    g_servo_pwm_attached = false;
+  }
+}
+
+// Pi sends: S0–S180 (angle), Z (detach / no PWM until next S…). Same on USB Serial and HC-05 inbound.
+static void applyServoCmdLine(String line) {
+  line.trim();
+  if (line.length() == 0) {
+    return;
+  }
+  char c0 = (char)toupper((unsigned char)line[0]);
+  if (c0 == 'Z') {
+    servoDetachPwm();
+    return;
+  }
+  if (c0 == 'S' && line.length() > 1) {
+    int a = line.substring(1).toInt();
+    servoApplyAngle(constrain(a, 0, 180));
+  }
+}
+
+static void readLineBuffered(Stream &io, String &buf) {
+  while (io.available() > 0) {
+    char c = (char)io.read();
+    if (c == '\r') {
+      continue;
+    }
     if (c == '\n') {
-      line.trim();
-      if (line.length() > 1 && (line[0] == 'S' || line[0] == 's')) {
-        int a = line.substring(1).toInt();
-        a = constrain(a, 0, 180);
-        terrametricServo.write(a);
-      }
-      line = "";
-    } else if (line.length() < 20) {
-      line += c;
+      applyServoCmdLine(buf);
+      buf = "";
+    } else if (buf.length() < 24) {
+      buf += c;
     }
   }
+}
+
+static void readUsbServoLines()
+{
+  static String line;
+  readLineBuffered(Serial, line);
+}
+
+static void readBluetoothServoLines()
+{
+  static String line;
+  readLineBuffered(blueToothSerial, line);
 }
 
 void loop()
 {
   readUsbServoLines();
-  // 8. Check if there is any data coming from the Bluetooth module (blueToothSerial).
-  //    If so, read it character by character and print it to the Arduino Serial Monitor.
-  if (blueToothSerial.available() > 0) {
-    char incoming = blueToothSerial.read();
-    Serial.print(incoming);
-  }
+  /* Inbound HC-05 (from Pi bridge): servo lines S### / Z (Pi ventilation). Do not print raw chars here. */
+  readBluetoothServoLines();
 
   // 9. Check if the PIR sensor detects motion (HIGH state). If yes, send "Movement" 
   //    to the connected device via Bluetooth, then delay briefly (200 ms).

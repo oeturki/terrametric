@@ -7,7 +7,7 @@ Starting a new session closes any other open session in application code.
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from database import Base
 
 

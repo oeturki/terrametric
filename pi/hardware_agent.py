@@ -139,9 +139,8 @@ def _get_arduino_serial():
         ) from e
 
 
-def _arduino_set_angle(deg: float) -> None:
-    d = int(max(0, min(180, round(deg))))
-    line = f"S{d}\n"
+def _arduino_send_line(line: str) -> None:
+    """Write one line (e.g. S90\\n or Z\\n) to the BT bridge POST or USB Arduino."""
     if ARDUINO_CMD_URL:
         data = line.encode("ascii")
         req = urllib.request.Request(
@@ -174,6 +173,16 @@ def _arduino_set_angle(deg: float) -> None:
     time.sleep(0.02)
 
 
+def _arduino_set_angle(deg: float) -> None:
+    d = int(max(0, min(180, round(deg))))
+    _arduino_send_line(f"S{d}\n")
+
+
+def _arduino_detach_servos() -> None:
+    """Tell the sketch to Servo.detach() — stops PWM until next S angle (Ventilation OFF)."""
+    _arduino_send_line("Z\n")
+
+
 def _arduino_vent_path() -> str:
     return ARDUINO_CMD_URL if ARDUINO_CMD_URL else f"USB {ARDUINO_PORT}"
 
@@ -194,8 +203,8 @@ def _apply_ventilation_arduino(body: VentilationBody) -> tuple[float, str]:
         _arduino_set_angle(ang)
         return ang, f"Arduino servo {ang}° ({path})"
     if body.on is False:
-        _arduino_set_angle(0.0)
-        return 0.0, f"Arduino servo 0° ({path})"
+        _arduino_detach_servos()
+        return 0.0, f"Arduino servo detached / PWM off ({path})"
     if body.on is True and body.spin:
         return _arduino_spin_sweep()
     if body.on is True and not body.spin:
