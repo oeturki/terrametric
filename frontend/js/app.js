@@ -82,8 +82,10 @@ function switchTab(tab, el) {
   el.classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
   if (tab === 'anomalies') {
+    if (typeof mirrorAnomalyDupFromGraph === 'function') mirrorAnomalyDupFromGraph();
     if (typeof fetchTelemetry === 'function') fetchTelemetry();
     if (typeof fetchAnomalies === 'function') fetchAnomalies();
+    if (typeof refreshAnomalyPlantIdSessionHint === 'function') refreshAnomalyPlantIdSessionHint();
   }
 }
 
@@ -176,6 +178,20 @@ applyRouteFromHash();
     return;
   }
   fetchAll();
+})();
+
+(function wireMlScanButton() {
+  const btn = document.getElementById('mlScanBtn');
+  if (!btn) return;
+  if (typeof runMlClassifyStoredWindow !== 'function') {
+    console.error('wireMlScanButton: runMlClassifyStoredWindow missing (anomalies.js failed to load?)');
+    return;
+  }
+  if (btn.dataset.mlBound === '1') return;
+  btn.dataset.mlBound = '1';
+  btn.addEventListener('click', function () {
+    runMlClassifyStoredWindow();
+  });
 })();
 
 /** bfcache restore: scripts do not re-run; re-fetch the plant list and related data. */

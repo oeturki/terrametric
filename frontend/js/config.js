@@ -55,6 +55,7 @@ const CONFIG = {
     telemetry: '/api/telemetry/timeseries',
     alerts:    '/api/alerts/active',
     anomalies: '/api/anomalies',
+    mlClassifyWindow: '/api/ml/classify/window',
     plants:    '/api/plants',
     devices:   '/api/devices',
     sessionsActive: '/api/sessions/active',

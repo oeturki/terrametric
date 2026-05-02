@@ -63,6 +63,19 @@ class Settings(BaseSettings):
     DROPOUT_SEVERITY_WARNING: int = 5
     DROPOUT_SEVERITY_CRITICAL: int = 15
 
+    # When True, enable correlation, CUSUM (level shift), EWMA, and seasonal detectors in addition
+    # to the default core set (dropout, spike, drift, noise). Synthetic lab always runs extended rules.
+    FR10_EXTENDED_DETECTORS: bool = False
+
+    # Synthetic HTTP lab (removed from SPA). Enable explicitly for demos/API tests.
+    ALLOW_ANOMALY_SIMULATE: bool = False
+
+    # Sklearn multiclass model on stored telemetry (see docs/ml-classifier.md).
+    # Shipped artifact under ML_CLASSIFIER_MODEL_PATH; batch classify via POST /api/ml/classify/window.
+    ML_ANOM_CLASSIFIER_ENABLED: bool = True
+    # Path resolved relative to the backend package directory (where config.py lives).
+    ML_CLASSIFIER_MODEL_PATH: str = "artifacts/anomaly_classifier.joblib"
+
     # JWT auth
     SECRET_KEY: str = "CHANGE_ME_IN_PRODUCTION"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60

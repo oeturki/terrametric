@@ -9,6 +9,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from config import settings
 from models.anomaly_detection_event import AnomalyDetectionEvent
 from models.reading import Telemetry
 from services.anomaly_service import AnomalyDetectionService
@@ -20,7 +21,15 @@ _svc: Optional[AnomalyDetectionService] = None
 def get_anomaly_service() -> AnomalyDetectionService:
     global _svc
     if _svc is None:
-        _svc = AnomalyDetectionService()
+        _svc = AnomalyDetectionService(
+            drift_window=settings.DRIFT_WINDOW_SIZE,
+            noise_window=settings.NOISE_WINDOW_SIZE,
+            noise_warn_mult=settings.NOISE_MULTIPLIER_WARNING,
+            noise_crit_mult=settings.NOISE_MULTIPLIER_CRITICAL,
+            dropout_multiplier=settings.DROPOUT_MULTIPLIER,
+            dropout_baseline_count=settings.DROPOUT_BASELINE_READINGS,
+            extended_detectors=settings.FR10_EXTENDED_DETECTORS,
+        )
     return _svc
 
 

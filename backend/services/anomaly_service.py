@@ -89,6 +89,7 @@ class AnomalyDetectionService:
         noise_crit_mult: float = 5.0,     # noise CRITICAL at 5x baseline
         dropout_multiplier: int = 3,      # gap must be 3x expected to flag
         dropout_baseline_count: int = 20,  # learn expected interval from first 20 readings
+        extended_detectors: bool = False,  # add correlation, CUSUM, EWMA, seasonal (see FR10_EXTENDED_DETECTORS)
     ):
         profiles = profiles or SENSOR_PROFILES
         self._variables = [v.value for v in MONITORED_VARIABLES]  # ["temperature", "humidity", "light"]
@@ -106,18 +107,21 @@ class AnomalyDetectionService:
         self._seasonal = SeasonalDetector()
 
         # All detectors in a single list, iterated by process_reading().
-        # Adding a new detector means: create the class, append here. Nothing else changes.
-        self._detectors: list[BaseDetector] = [
+        # Core set is testable baseline; extended rules are assumption-heavy (sampling structure).
+        spike = SpikeDetector(profiles)
+        core: list[BaseDetector] = [
             self._dropout,
-            SpikeDetector(profiles),
+            spike,
             DriftDetector(profiles, drift_window),
             NoiseDetector(profiles, noise_window, noise_warn_mult, noise_crit_mult),
+        ]
+        extended: list[BaseDetector] = [
             self._correlation,
             self._cusum,
             self._ewma,
             self._seasonal,
         ]
-
+        self._detectors = core + (extended if extended_detectors else [])
     def _stream_key(self, reading: Reading) -> int:
         """Isolate detector state per sample (plant) when available; else recording session / lab id."""
         if reading.plant_id is not None:

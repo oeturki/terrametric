@@ -32,6 +32,36 @@ from models.reading import Telemetry
 from services.recording_session_service import get_any_open_session, get_open_session_for_plant
 
 
+def query_telemetry_for_plant_since(
+    db: Session,
+    *,
+    plant_id: int,
+    since: datetime,
+):
+    """
+    Telemetry rows for sample ``plant_id`` with ``timestamp >= since`` (naive UTC, same as ingest).
+
+    Includes rows tagged with ``Telemetry.plant_id`` and legacy rows where that column was
+    left NULL but ``session_id`` points at a RecordingSession for the same plant.
+    """
+    from sqlalchemy import and_, or_
+
+    from models.session import RecordingSession
+
+    return (
+        db.query(Telemetry)
+        .outerjoin(RecordingSession, Telemetry.session_id == RecordingSession.id)
+        .filter(Telemetry.timestamp >= since)
+        .filter(
+            or_(
+                Telemetry.plant_id == plant_id,
+                and_(Telemetry.plant_id.is_(None), RecordingSession.plant_id == plant_id),
+            )
+        )
+        .order_by(Telemetry.timestamp.asc(), Telemetry.id.asc())
+    )
+
+
 def store_telemetry_row(
     db: Session,
     *,
@@ -212,17 +242,24 @@ def get_telemetry_timeseries_data(
       rows with ``session_id`` NULL and other sessions on the same plant).
     """
     cutoff_time = datetime.utcnow() - timedelta(hours=hours)
-    q = db.query(Telemetry).filter(Telemetry.timestamp >= cutoff_time)
-
-    if session_id is not None:
-        q = q.filter(Telemetry.session_id == session_id)
 
     if plant_ids:
+        q = db.query(Telemetry).filter(Telemetry.timestamp >= cutoff_time)
+        if session_id is not None:
+            q = q.filter(Telemetry.session_id == session_id)
         q = q.filter(Telemetry.plant_id.in_(plant_ids))
-    elif plant_id is not None:
-        q = q.filter(Telemetry.plant_id == plant_id)
+        rows = q.order_by(Telemetry.timestamp).all()
+    elif plant_id is not None and session_id is None:
+        # Same membership as ML batch classify: plant_id column or session-linked legacy rows.
+        rows = query_telemetry_for_plant_since(db, plant_id=plant_id, since=cutoff_time).all()
+    else:
+        q = db.query(Telemetry).filter(Telemetry.timestamp >= cutoff_time)
+        if session_id is not None:
+            q = q.filter(Telemetry.session_id == session_id)
+        if plant_id is not None:
+            q = q.filter(Telemetry.plant_id == plant_id)
+        rows = q.order_by(Telemetry.timestamp).all()
 
-    rows = q.order_by(Telemetry.timestamp).all()
     return _build_payload(rows, bin_seconds)
 
 

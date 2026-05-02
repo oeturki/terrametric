@@ -71,10 +71,6 @@ export function getTelemetryTimeseries(opts = {}) {
 
 // -- Anomaly Detection API (FR10) --
 
-export function simulateAnomaly(scenario = "drift", durationMin = 30) {
-  return api.post(`/anomalies/simulate?scenario=${encodeURIComponent(scenario)}&duration_min=${durationMin}`);
-}
-
 /** Persisted events (live / dummy ingest). */
 export function listPersistedAnomalies(params = {}) {
   return api.get("/anomalies", { params });
@@ -89,10 +85,6 @@ export function getAnomalies(sessionId, filters = {}) {
 
 export function getAnomalySummary(sessionId) {
   return api.get(`/anomalies/summary/${sessionId}`);
-}
-
-export function clearAnomalies() {
-  return api.delete("/anomalies/clear");
 }
 
 export function reprocessAnomalies(plantId, hours = 24) {

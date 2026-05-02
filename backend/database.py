@@ -156,6 +156,34 @@ def run_sqlite_migrations(engine) -> None:
             )
         )
 
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS telemetry_ml_predictions (
+                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    plant_id INTEGER NOT NULL,
+                    telemetry_id INTEGER NOT NULL,
+                    predicted_class VARCHAR(32) NOT NULL,
+                    feature_version VARCHAR(16) NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    FOREIGN KEY(plant_id) REFERENCES plants(id) ON DELETE CASCADE,
+                    FOREIGN KEY(telemetry_id) REFERENCES telemetry(id) ON DELETE CASCADE,
+                    CONSTRAINT uq_telemetry_ml_predictions_telemetry_id UNIQUE (telemetry_id)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_telemetry_ml_predictions_plant_id ON telemetry_ml_predictions (plant_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_telemetry_ml_predictions_created_at ON telemetry_ml_predictions (created_at)"
+            )
+        )
+
 
 def bootstrap_auth(engine) -> None:
     """

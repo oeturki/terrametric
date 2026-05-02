@@ -1,5 +1,6 @@
 """
-One active recording session globally: starting a new session ends all others.
+Recording sessions: at most one open session per ``started_by`` user (API layer).
+Legacy callers without ``user_id`` still close opens for the plant only.
 """
 
 import json
@@ -77,7 +78,10 @@ def start_session(
         raise ValueError("plant_not_found")
     if user_id is not None and p.owner_id is not None and p.owner_id != user_id:
         raise ValueError("plant_forbidden")
-    close_open_sessions_for_plant(db, plant_id)
+    if user_id is not None:
+        close_open_sessions_for_user(db, user_id)
+    else:
+        close_open_sessions_for_plant(db, plant_id)
 
     s = RecordingSession(
         plant_id=plant_id,

@@ -284,6 +284,46 @@ body { font-family: 'DM Mono', monospace; background: var(--cream); color: var(-
   color: var(--anom-muted);
 }
 
+.anom-callout.anom-callout--plant {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--anom-ink);
+  background: #fdf6e8;
+  border: 1px solid #e2c088;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin: 0 0 12px;
+  max-width: 52rem;
+}
+.anom-callout .anom-callout__sub {
+  display: block;
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--anom-muted);
+}
+
+.anom-methods-blurb {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--bark-mid);
+  margin: 0 0 12px;
+  max-width: 48rem;
+}
+.anom-methods-blurb a {
+  color: var(--olive);
+}
+
+.anom-fetch-hint:empty {
+  display: none;
+}
+.anom-fetch-hint {
+  font-size: 10px;
+  line-height: 1.45;
+  color: #8a3820;
+  margin: -4px 0 10px;
+  max-width: 48rem;
+}
+
 .anom-sr-only {
   position: absolute;
   width: 1px;
@@ -344,6 +384,25 @@ body { font-family: 'DM Mono', monospace; background: var(--cream); color: var(-
 .anom-duration-input:focus { border-color: var(--olive); box-shadow: 0 0 0 2px rgba(122,140,30,.12); }
 .anom-duration-suffix { font-size: 10px; color: var(--anom-muted); letter-spacing: .04em; }
 .anom-sim-toolbar__actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+/* ML scan summary */
+.anom-ml-counts-panel { margin-top: 10px; margin-bottom: 12px; font-size: 11px; }
+.anom-ml-counts-head { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--anom-muted); margin-bottom: 8px; }
+.anom-ml-counts-meta { font-family: 'DM Mono', monospace; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--bark-mid); margin-left: 8px; }
+.anom-ml-chips { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+.anom-ml-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--anom-border);
+  background: var(--cream);
+  font-size: 10px;
+  color: var(--anom-ink);
+}
+.anom-ml-chip strong { font-family: 'DM Mono', monospace; font-weight: 600; font-size: 11px; }
+.anom-ml-counts-msg { font-size: 10px; color: var(--bark-mid); line-height: 1.55; margin: 0; }
 
 /* Scenario specification panel */
 .anom-scenario-panel {

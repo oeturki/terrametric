@@ -171,7 +171,7 @@
             <option value="72">Last 72 hours</option>
             <option value="168">Last 7 days</option>
           </select>
-          <select class="select-pill" id="graphBin" title="Downsample readings into fixed time buckets (mean per bucket). Auto picks a sensible bucket for the range." onchange="fetchTelemetry()">
+          <select class="select-pill" id="graphBin" title="Downsample readings into fixed time buckets (mean per bucket). Auto picks a sensible bucket for the range." onchange="onGraphBinChange()">
             <option value="auto" selected>Bin: auto</option>
             <option value="0">Raw (no binning)</option>
             <option value="60">1 min</option>
@@ -232,50 +232,63 @@
       <!-- ANOMALIES TAB -->
       <div class="tabpanel" id="tab-anomalies">
         <div class="anom-page">
-        <p id="anomTelemetryHint" style="font-size:11px;color:var(--bark-mid);margin:0 0 12px;max-width:48rem;line-height:1.55;">
-          <strong>Live charts and the event log</strong> use the same sample, time range, binning, and &ldquo;This recording only&rdquo; setting as the <strong>Graphs</strong> tab. Adjust those controls there, then open this tab or wait for the next refresh.
+        <div class="anom-callout anom-callout--plant" id="anomPlantIdCallout" role="note">
+          <strong>Persisted live anomalies need a sample id on each telemetry row.</strong>
+          Start a <strong>recording</strong> for the plant in <strong>Manage Samples</strong>, or ensure your bridge sends <code>plant_id</code> (see <a href="../docs/setup-guide.md">setup guide</a> / <a href="../docs/pi-setup.md">Pi setup</a> for <code>TM_BRIDGE_PLANT_ID</code>). If older rows were stored without a sample id, pick the sample below and use <strong>Reprocess window</strong> after fixing ingest.
+          <span id="anomActiveSessionLine" class="anom-callout__sub" aria-live="polite"></span>
+        </div>
+        <p id="anomMethodsBlurb" class="anom-methods-blurb">
+          Rule-engine detectors persist events to the DB. The bundled <strong>ML classifier</strong> runs only on <strong>stored</strong> telemetry for the selected sample and window (weak labels — see <a href="../docs/ml-classifier.md">docs/ml-classifier.md</a>). Full detector methodology: <a href="../docs/anomaly-detection.md">docs/anomaly-detection.md</a>.
         </p>
+        <div class="filter-row anom-filter-row" style="flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px;">
+          <select class="select-pill" id="anomSampleSelect" title="Same as Graphs: filter telemetry and anomaly events by sample." onchange="onAnomSampleFilterChange()"></select>
+          <select class="select-pill" id="anomGraphRange" title="Same as Graphs time range." onchange="onAnomRangeChange()">
+            <option value="1">Last 1 hour</option>
+            <option value="6">Last 6 hours</option>
+            <option value="24" selected>Last 24 hours</option>
+            <option value="72">Last 72 hours</option>
+            <option value="168">Last 7 days</option>
+          </select>
+          <select class="select-pill" id="anomGraphBin" title="Same as Graphs binning (affects anomaly charts)." onchange="onAnomBinChange()">
+            <option value="auto" selected>Bin: auto</option>
+            <option value="0">Raw (no binning)</option>
+            <option value="60">1 min</option>
+            <option value="300">5 min</option>
+            <option value="600">10 min</option>
+            <option value="1800">30 min</option>
+            <option value="3600">1 hour</option>
+          </select>
+          <label class="graph-session-only-label anom-session-only-label" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--bark-mid);cursor:pointer;white-space:nowrap;" title="Same as Graphs: only applies when a recording is active for the selected sample.">
+            <input type="checkbox" id="anomGraphSessionOnly" disabled onchange="onAnomSessionOnlyChange()">
+            This recording only
+          </label>
+        </div>
         <div id="anomDataSourceBanner" class="anom-data-banner" role="status"></div>
+        <p id="anomFetchHint" class="anom-fetch-hint"></p>
 
-        <section class="anom-sim-toolbar" aria-label="Synthetic lab parameters">
+        <section class="anom-sim-toolbar anom-ml-toolbar" aria-label="ML classifier on stored telemetry">
+          <p class="anom-ml-scope-note" style="width:100%;margin:0 0 6px;font-size:10px;color:var(--anom-muted);line-height:1.5;">
+            <strong>ML scan</strong> results show in the <strong>predicted labels</strong> row below — not in the grey summary cards (those are rule-engine events from the API).
+          </p>
           <div class="anom-sim-toolbar__group">
-            <span class="anom-kicker">Synthetic lab</span>
-            <label class="anom-sr-only" for="simScenario">Scenario</label>
-            <select class="select-pill anom-sim-toolbar__select" id="simScenario">
-              <option value="stable">Stable</option>
-              <option value="drift" selected>Drift</option>
-              <option value="noise">Noise</option>
-              <option value="dropout">Dropout</option>
-              <option value="spike">Spike</option>
-              <option value="level_shift">Level Shift</option>
-              <option value="correlation">Correlation Break</option>
-              <option value="all">All Combined</option>
+            <span class="anom-kicker">ML pass (stored data)</span>
+            <label class="anom-sr-only" for="mlScanHours">Window hours</label>
+            <select class="select-pill anom-sim-toolbar__select" id="mlScanHours" title="Classify telemetry rows in this backward window">
+              <option value="1">Last 1 hour</option>
+              <option value="3">Last 3 hours</option>
+              <option value="6">Last 6 hours</option>
+              <option value="24" selected>Last 24 hours</option>
+              <option value="72">Last 72 hours</option>
             </select>
           </div>
-          <div class="anom-sim-toolbar__group anom-sim-toolbar__group--duration">
-            <span class="anom-kicker">Duration</span>
-            <div class="anom-duration-field">
-              <label class="anom-sr-only" for="simDuration">Minutes</label>
-              <input type="number" class="anom-duration-input" id="simDuration" value="60" min="5" max="1440">
-              <span class="anom-duration-suffix">min</span>
-            </div>
-          </div>
           <div class="anom-sim-toolbar__actions">
-            <button type="button" class="btn btn-primary" id="simRunBtn" onclick="runAnomalySimulation()">Run synthetic lab</button>
-            <button type="button" class="btn btn-ghost" onclick="clearAnomalySimulation()">Clear lab &amp; show live</button>
+            <button type="button" class="btn btn-primary" id="mlScanBtn">Run ML scan</button>
           </div>
+          <span class="anom-ml-meta" id="mlScanHint" style="font-size:10px;color:var(--anom-muted);max-width:28rem;line-height:1.45;"></span>
         </section>
-
-        <aside id="anomScenarioInfo" class="anom-scenario-panel" aria-labelledby="anom-scenario-heading">
-          <div class="anom-scenario-panel__top">
-            <div class="anom-scenario-panel__label">
-              <span class="anom-scenario-panel__eyebrow">Active protocol</span>
-              <h3 id="anom-scenario-heading" class="anom-scenario-panel__title">Scenario specification</h3>
-            </div>
-            <code id="anomScenarioTag" class="anom-scenario-panel__code"></code>
-          </div>
-          <p id="anomScenarioDesc" class="anom-scenario-panel__desc"></p>
-        </aside>
+        <div id="mlCountsPanel" class="anom-ml-counts-panel" aria-live="polite">
+          <p class="anom-ml-counts-msg" style="margin:0 0 8px;">Run <strong>ML scan</strong> to see per-row sklearn labels and counts. Works with any number of stored rows (including a short 1-minute recording). If you see <strong>0 rows scored</strong>, widen the ML hours dropdown or check that telemetry is tagged for this sample (<code>plant_id</code> / recording session).</p>
+        </div>
 
         <section class="anomaly-summary anom-summary-grid" aria-label="Detection counts">
           <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon" aria-hidden="true">∑</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value" id="anomTotal">--</div><div class="anom-label">Total events</div></div></div>
@@ -302,7 +315,7 @@
           <div class="card-header anom-card-head">
             <span class="card-title">Per-sensor time series</span>
             <div class="anom-card-head__tools">
-              <button type="button" class="btn btn-ghost" style="font-size:10px;padding:4px 10px;" onclick="reprocessAnomalyWindow()" title="Replay rows in this window through detectors (same plant and hours as Graphs)">Reprocess window</button>
+              <button type="button" class="btn btn-ghost" style="font-size:10px;padding:4px 10px;" onclick="reprocessAnomalyWindow()" title="Replay rows in this window through detectors (same sample and hours as the filters above)">Reprocess window</button>
               <label class="anom-check-label">
                 <input type="checkbox" id="anomShowMarkers" checked onchange="renderAnomCharts()"> Event markers
               </label>
@@ -312,7 +325,7 @@
           <div id="anomChartWrap" class="anom-chart-host">
             <div class="anom-placeholder">
               <span class="anom-placeholder__glyph" aria-hidden="true">◇</span>
-              <p class="anom-placeholder__text">Open the <strong>Graphs</strong> tab to set sample and range, or use <strong>Run synthetic lab</strong> below for an offline demo (not saved).</p>
+              <p class="anom-placeholder__text">Use the filters above for sample, range, and binning to load telemetry. Generate scenarios from <strong>Manage Samples</strong> (dummy stream) if you need labelled-style runs.</p>
             </div>
           </div>
         </section>
@@ -390,7 +403,7 @@
           <div id="anomalyBody">
             <div class="anom-placeholder">
               <span class="anom-placeholder__glyph" aria-hidden="true">◇</span>
-              <p class="anom-placeholder__text">No events loaded. Run a simulation or connect live telemetry to populate this register.</p>
+              <p class="anom-placeholder__text">No events loaded. Connect live telemetry with <code>plant_id</code>, widen the window, use <strong>Reprocess window</strong>, or start a dummy stream in Manage Samples.</p>
             </div>
           </div>
         </div>
@@ -523,7 +536,7 @@
           </div>
           <div class="detail-field"><label>Arduino / device</label><select class="detail-input" id="d-device"><option value="">— None (optional) —</option></select></div>
 
-          <div class="detail-field" style="margin-top:6px;"><label>Scenario (used by the dummy data engine)</label>
+          <div class="detail-field" style="margin-top:6px;"><label>Scenario (dummy stream only)</label>
             <select class="detail-input" id="d-scenario">
               <option value="stable" selected>Stable — healthy chamber</option>
               <option value="heat_spike">Heat spike — periodic +6&deg;C bursts</option>
@@ -532,6 +545,8 @@
               <option value="sensor_drift">Sensor drift — slow +0.05&deg;C/min on temp</option>
             </select>
           </div>
+          <p style="font-size:10px;color:var(--bark-mid);margin:4px 0 0;line-height:1.45;max-width:36rem;">
+            If <strong>Stream dummy data</strong> is <em>off</em>, the scenario is saved on the session record but <strong>does not</strong> generate points; charts then show only real ingest (and any old backfill rows for this sample).</p>
           <p style="font-size:10px;color:var(--bark-mid);margin:6px 0 0;line-height:1.45;max-width:36rem;">View Data graphs show <strong>every</strong> reading for the sample and time range you choose there (older backfill, past sessions, and the current run mix together). Use <strong>Clear telemetry</strong> to reset, or on Graphs check <strong>This recording only</strong> while a session is active for that sample.</p>
           <div class="detail-field" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--bark-mid);cursor:pointer;">
@@ -578,10 +593,10 @@
 <script src="js/config.js"></script>     <!-- ← Edit this to connect your system  -->
 <script src="js/alerts.js"></script>     <!-- Toasts, bell, warning banner         -->
 <script src="js/charts.js"></script>     <!-- Sensor graph drawing                 -->
-<script src="js/anomalies.js"></script>  <!-- Anomaly detection & simulation       -->
+<script src="js/api.js"></script>        <!-- Fetches + graph/anomaly filters (before anomalies ML sync) -->
+<script src="js/anomalies.js"></script>  <!-- Anomalies tab: live charts + ML batch scan -->
 <script src="js/home.js"></script>       <!-- Stat cards, ESI gauge                -->
 <script src="js/samples.js"></script>    <!-- Manage Samples + Gallery             -->
-<script src="js/api.js"></script>        <!-- Fetches data from the server         -->
 <script src="js/app.js"></script>        <!-- Navigation + boot sequence           -->
 
 </body>

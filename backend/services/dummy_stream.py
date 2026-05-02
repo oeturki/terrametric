@@ -269,6 +269,7 @@ class StreamSupervisor:
                         distance=reading.distance,
                         plant_height=reading.plant_height,
                         timestamp=reading.timestamp,
+                        plant_id=sess.plant_id,
                     )
                 await asyncio.sleep(interval_sec)
         except asyncio.CancelledError:

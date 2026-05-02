@@ -1,4 +1,4 @@
-/** FR10 — Live / dummy anomalies (persisted) + synthetic lab (offline, no DB) */
+/** FR10 — Live / dummy anomalies from persisted detector events. */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import {
@@ -6,25 +6,12 @@ import {
   ResponsiveContainer, ReferenceDot, Legend,
 } from "recharts";
 import {
-  simulateAnomaly,
-  clearAnomalies,
   listPersistedAnomalies,
   getTelemetryTimeseries,
   getPlants,
   getActiveSessions,
   reprocessAnomalies,
 } from "../services/api";
-
-const SCENARIOS = [
-  { value: "stable", label: "Stable (no anomalies)", desc: "Normal sensor data — should produce zero detections" },
-  { value: "drift", label: "Drift", desc: "Temperature gradually increases over time" },
-  { value: "noise", label: "Noise", desc: "Temperature becomes very jittery in the second half" },
-  { value: "dropout", label: "Dropout", desc: "Gap in the middle of the data" },
-  { value: "spike", label: "Spike", desc: "Extreme temperature outliers" },
-  { value: "level_shift", label: "Level shift", desc: "Abrupt step change" },
-  { value: "correlation", label: "Correlation break", desc: "Humidity/temp correlation disrupted" },
-  { value: "all", label: "All Combined", desc: "Stress-test every injection" },
-];
 
 const SEV_COLORS = { danger: "#a83232", warning: "#c4711a", info: "#4a7c8f" };
 const SEV_BG = { danger: "#ffe0e0", warning: "#fff0c0", info: "#e0f0ff" };
@@ -59,11 +46,6 @@ export default function AnomalyView() {
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveErr, setLiveErr] = useState(null);
 
-  const [scenario, setScenario] = useState("drift");
-  const [durationMin, setDurationMin] = useState(30);
-  const [labLoading, setLabLoading] = useState(false);
-  const [labResult, setLabResult] = useState(null);
-  const [labErr, setLabErr] = useState(null);
   const [evtFilter, setEvtFilter] = useState("all");
 
   const [reprocBusy, setReprocBusy] = useState(false);
@@ -173,24 +155,6 @@ export default function AnomalyView() {
     ? liveEvents
     : liveEvents.filter((e) => e.type === evtFilter);
 
-  async function runLab() {
-    setLabLoading(true);
-    setLabErr(null);
-    setLabResult(null);
-    try {
-      const res = await simulateAnomaly(scenario, durationMin);
-      setLabResult(res.data);
-    } catch (err) {
-      setLabErr(err.response?.data?.detail || err.message || "Simulation failed");
-    }
-    setLabLoading(false);
-  }
-
-  async function handleLabClear() {
-    try { await clearAnomalies(); } catch { /* lab state only */ }
-    setLabResult(null);
-  }
-
   async function handleReprocess() {
     if (!plantId) return;
     setReprocBusy(true);
@@ -203,32 +167,6 @@ export default function AnomalyView() {
     setReprocBusy(false);
   }
 
-  const labChart = useMemo(() => {
-    if (!labResult?.readings?.length) return [];
-    return labResult.readings.map((r) => ({
-      iso: r.timestamp,
-      time: new Date(r.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      temperature: r.temperature,
-      humidity: r.humidity,
-      light: r.light,
-    }));
-  }, [labResult]);
-
-  const labEvents = labResult?.events || [];
-  const labMarkers = useMemo(() => {
-    if (!labChart.length || !labEvents.length) return [];
-    return labEvents
-      .filter((e) => e.sensor === "temperature" || e.sensor === "temperature+humidity")
-      .map((e) => {
-        const idx = findNearestPointIndex(e.timestamp, labChart);
-        if (idx < 0) return null;
-        return { ...labChart[idx], severity: e.severity, type: e.type };
-      })
-      .filter(Boolean);
-  }, [labChart, labEvents]);
-
-  const selectedScenario = SCENARIOS.find((s) => s.value === scenario);
-
   const summary = liveAnom || {};
 
   return (
@@ -240,7 +178,7 @@ export default function AnomalyView() {
         <div>
           <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 20 }}>Anomalies</div>
           <div style={{ fontSize: 10, color: "#4a4730", letterSpacing: ".1em", marginTop: 2, textTransform: "uppercase" }}>
-            Live ingest + synthetic lab
+            Live &amp; stored detector events
           </div>
         </div>
         <a href="/" style={{ fontSize: 11, color: "#4a4730", textDecoration: "none" }}>← Dashboard</a>
@@ -428,102 +366,6 @@ export default function AnomalyView() {
             ))
           )}
         </div>
-
-        {/* Synthetic lab */}
-        <div style={{
-          background: "#2c2a1e", borderRadius: 14, padding: "24px 28px", color: "#f5f2e8", marginBottom: 28,
-        }}>
-          <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 14, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".08em" }}>
-            Synthetic lab (offline)
-          </div>
-          <div style={{ fontSize: 11, opacity: 0.65, marginBottom: 18 }}>
-            Does not write to the database. Use for teaching or detector QA. Clears only in-process lab buffers on the server.
-          </div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-            {SCENARIOS.map((s) => (
-              <button key={s.value} type="button" onClick={() => setScenario(s.value)} style={{
-                fontFamily: "'DM Mono', monospace", fontSize: 11, padding: "8px 16px", borderRadius: 20,
-                cursor: "pointer", border: scenario === s.value ? "2px solid #b5c94a" : "2px solid rgba(255,255,255,0.15)",
-                background: scenario === s.value ? "#7a8c1e" : "transparent",
-                color: scenario === s.value ? "white" : "rgba(255,255,255,0.6)",
-              }}>
-                {s.label}
-              </button>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 12 }}>{selectedScenario?.desc}</div>
-          <label style={{ fontSize: 11, marginRight: 16 }}>
-            Duration (min){" "}
-            <input
-              type="number"
-              min={5}
-              max={1440}
-              value={durationMin}
-              onChange={(e) => setDurationMin(Number(e.target.value))}
-              style={{ width: 72, marginLeft: 8, padding: 6, borderRadius: 4, border: "none" }}
-            />
-          </label>
-          <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-            <button type="button" onClick={runLab} disabled={labLoading} style={{
-              fontFamily: "'DM Mono', monospace", fontSize: 12, padding: "10px 24px", borderRadius: 6,
-              cursor: labLoading ? "wait" : "pointer", border: "none",
-              background: "#7a8c1e", color: "white", fontWeight: 600,
-            }}>
-              {labLoading ? "Running…" : "▶ Run synthetic lab"}
-            </button>
-            {labResult && (
-              <button type="button" onClick={handleLabClear} style={{
-                fontFamily: "'DM Mono', monospace", fontSize: 11, padding: "10px 16px", borderRadius: 6,
-                cursor: "pointer", border: "1.5px solid rgba(255,255,255,0.2)", background: "transparent", color: "rgba(255,255,255,0.6)",
-              }}>
-                Clear lab chart
-              </button>
-            )}
-          </div>
-        </div>
-
-        {labErr && (
-          <div style={{
-            background: "#fff5f5", border: "1px solid #e07070", borderRadius: 12, padding: "16px 20px",
-            marginBottom: 24, fontSize: 12, color: "#8a1010",
-          }}>
-            <strong>Lab error:</strong> {labErr}
-          </div>
-        )}
-
-        {labResult && (
-          <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
-              <SummaryCard icon="📊" count={labResult.total} label="Total (lab)" color="#2c2a1e" />
-              <SummaryCard icon="📉" count={labResult.drift ?? 0} label="Drift" color="#4a7c8f" />
-              <SummaryCard icon="⚡" count={labResult.spike ?? 0} label="Spikes" color="#a83232" />
-              <SummaryCard icon="📡" count={labResult.dropout ?? 0} label="Dropouts" color="#c4711a" />
-            </div>
-            <div style={{
-              background: "white", border: "1px solid #e8e3d0", borderRadius: 12, padding: 24, marginBottom: 24,
-            }}>
-              <div style={{
-                fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: 13, textTransform: "uppercase",
-                letterSpacing: ".08em", marginBottom: 16,
-              }}>
-                Lab temperature trace ({labResult.readings_count ?? labChart.length} readings)
-              </div>
-              <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={labChart}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e8e3d0" />
-                  <XAxis dataKey="time" tick={{ fontSize: 9, fontFamily: "DM Mono" }} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontSize: 10, fontFamily: "DM Mono" }} />
-                  <Tooltip contentStyle={{ fontFamily: "DM Mono", fontSize: 11 }} />
-                  <Line type="monotone" dataKey="temperature" stroke="#7a8c1e" strokeWidth={2} dot={false} name="Temperature (°C)" />
-                  {labMarkers.map((m, i) => (
-                    <ReferenceDot key={i} x={m.time} y={m.temperature} r={5}
-                      fill={SEV_COLORS[m.severity] || "#888"} stroke="white" strokeWidth={2} />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </>
-        )}
       </div>
     </div>
   );

@@ -57,6 +57,10 @@ function fireAlert(sev, title, msg, dur = 6000) {
 
 function showToast(entry, dur) {
   const stack = document.getElementById('toastStack');
+  if (!stack) {
+    console.error('showToast: #toastStack missing; alert title=', entry?.title);
+    return;
+  }
   const el = document.createElement('div');
   el.className = 'toast ' + entry.sev;
   el.style.setProperty('--dur', (dur / 1000) + 's');

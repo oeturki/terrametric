@@ -1,6 +1,5 @@
 // ─────────────────────────────────────────────
-//  anomalies.js — Anomaly detection & simulation
-//  Loaded by frontend/index.html (View Data → Anomalies tab).
+//  anomalies.js — Anomaly detection (View Data → Anomalies tab).
 // ─────────────────────────────────────────────
 
 let anomalyLog = [];
@@ -10,9 +9,6 @@ let anomLogVisible = ANOM_PAGE_SIZE;
 let anomAckKeys = new Set();
 let anomFocusTs = null;
 
-/** When true, periodic fetches must not overwrite lab charts or the synthetic event log. */
-window.anomSyntheticLabActive = false;
-let anomDataSource = 'live';
 let anomSimReadings = [];
 let anomSimActiveSensors = new Set(['temperature']);
 
@@ -42,17 +38,45 @@ function anomFindReadingIndexForTs(ts) {
 function updateAnomDataSourceBanner() {
   const el = document.getElementById('anomDataSourceBanner');
   if (!el) return;
-  if (anomDataSource === 'synthetic_lab') {
-    el.textContent = 'Synthetic lab · offline run (not saved to the database)';
-    el.classList.add('anom-banner--lab');
-    return;
-  }
-  const rangeLabel = document.getElementById('graphRange')?.selectedOptions[0]?.textContent || '';
+  const rangeEl = document.getElementById('graphRange');
+  const rangeLabel =
+    document.getElementById('tab-anomalies')?.classList.contains('active')
+      ? document.getElementById('anomGraphRange')?.selectedOptions[0]?.textContent
+      : rangeEl?.selectedOptions[0]?.textContent;
+  const rangeDisp = rangeLabel || rangeEl?.selectedOptions[0]?.textContent || '';
   const pid = document.getElementById('graphSample')?.value;
   el.textContent = pid
-    ? ('Live telemetry · ' + rangeLabel + ' · sample #' + pid + ' (same filters as Graphs)')
-    : ('Live telemetry · ' + rangeLabel + ' · all samples combined');
+    ? ('Live telemetry · ' + rangeDisp + ' · sample #' + pid)
+    : ('Live telemetry · ' + rangeDisp + ' · all samples combined');
   el.classList.remove('anom-banner--lab');
+}
+
+async function refreshAnomalyPlantIdSessionHint() {
+  const line = document.getElementById('anomActiveSessionLine');
+  if (!line) return;
+  if (!document.getElementById('tab-anomalies')?.classList.contains('active')) return;
+  const plantId = (document.getElementById('graphSample')?.value || '').trim();
+  try {
+    const act = await apiFetch(CONFIG.ENDPOINTS.sessionsActive);
+    const sessions = act.sessions || [];
+    const active = sessions[0] || null;
+    if (!plantId) {
+      line.textContent = active
+        ? ' Tip: Active recording on sample #' + active.plant_id + ' — select that sample above so charts and the anomaly list match that stream.'
+        : '';
+      return;
+    }
+    const pid = Number(plantId);
+    if (active && Number(active.plant_id) === pid) {
+      line.textContent =
+        ' Session #' + active.id + ' active for this sample — telemetry ingested during recording should carry plant_id for live persistence.';
+    } else {
+      line.textContent =
+        ' No active recording for this sample — if live rows lack plant_id, start recording in Manage Samples or set the bridge plant id, then use Reprocess window.';
+    }
+  } catch {
+    line.textContent = '';
+  }
 }
 
 /**
@@ -61,13 +85,12 @@ function updateAnomDataSourceBanner() {
 function syncAnomalyChartsFromTelemetryPayload(d) {
   if (!d || !Array.isArray(d.timestamps) || !d.timestamps.length) {
     anomSimReadings = [];
-    anomDataSource = 'live';
     updateAnomDataSourceBanner();
     buildAnomSensorPills();
     const wrap = document.getElementById('anomChartWrap');
     const score = document.getElementById('anomScoreWrap');
     if (wrap) {
-      wrap.innerHTML = '<div class="anom-placeholder"><span class="anom-placeholder__glyph" aria-hidden="true">◇</span><p class="anom-placeholder__text">No telemetry in this window for the current filters. Use the <strong>Graphs</strong> tab to pick a sample or widen the range.</p></div>';
+      wrap.innerHTML = '<div class="anom-placeholder"><span class="anom-placeholder__glyph" aria-hidden="true">◇</span><p class="anom-placeholder__text">No telemetry in this window for the current filters. Pick a sample or widen the range using the filters above.</p></div>';
     }
     if (score) {
       score.innerHTML = '<div class="anom-placeholder anom-placeholder--compact"><p class="anom-placeholder__text">No data in range.</p></div>';
@@ -86,20 +109,41 @@ function syncAnomalyChartsFromTelemetryPayload(d) {
       height: d.plant_height[i]
     });
   }
-  anomDataSource = 'live';
   updateAnomDataSourceBanner();
   buildAnomSensorPills();
   renderAnomCharts();
   renderAnomalyScoreTimeline();
 }
 
+/** Plant id for View Data → Anomalies: sync graph picker from anomalies dropdown, then read either. */
+function getViewDataPlantId() {
+  if (
+    typeof mirrorGraphFromAnomalyDup === 'function' &&
+    document.getElementById('tab-anomalies')?.classList.contains('active')
+  ) {
+    try {
+      mirrorGraphFromAnomalyDup();
+    } catch (e) {
+      console.warn('mirrorGraphFromAnomalyDup', e);
+    }
+  }
+  var g = (document.getElementById('graphSample')?.value || '').trim();
+  if (g) return g;
+  return (document.getElementById('anomSampleSelect')?.value || '').trim();
+}
+
 async function reprocessAnomalyWindow() {
-  const plantId = document.getElementById('graphSample')?.value;
+  const plantId = getViewDataPlantId();
   if (!plantId) {
-    fireAlert('warning', 'Select a sample', 'Choose a plant in the Graphs dropdown first.', 4000);
+    fireAlert('warning', 'Select a sample', 'Choose Apple (or any sample) in the dropdown above on this tab.', 4000);
+    var mh = document.getElementById('mlScanHint');
+    if (mh) mh.textContent = 'Pick a sample in the dropdown, then Run ML scan or Reprocess.';
     return;
   }
-  const hours = parseInt(document.getElementById('graphRange')?.value || '24', 10);
+  const hours =
+    typeof coerceGraphHourRange === 'function'
+      ? coerceGraphHourRange()
+      : parseInt(document.getElementById('graphRange')?.value || '24', 10);
   try {
     const res = await authFetch(API_BASE + '/api/anomalies/reprocess?plant_id=' + encodeURIComponent(plantId) + '&hours=' + encodeURIComponent(String(hours)), { method: 'POST' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -109,6 +153,149 @@ async function reprocessAnomalyWindow() {
     if (typeof fetchTelemetry === 'function') await fetchTelemetry();
   } catch (e) {
     fireAlert('danger', 'Reprocess failed', String(e.message || e), 5000);
+  }
+}
+
+const ML_COUNT_ORDER = ['normal', 'spike', 'level_shift', 'drift', 'ewma_breach', 'noise', 'dropout', 'missing_data', 'correlation', 'seasonal', 'other'];
+
+function renderMlCountsPanel(payload) {
+  const panel = document.getElementById('mlCountsPanel');
+  const hintEl = document.getElementById('mlScanHint');
+  if (!panel) return;
+
+  const counts = (payload && payload.counts && typeof payload.counts === 'object') ? payload.counts : {};
+  const rowsScored = payload && payload.rows_scored != null ? Number(payload.rows_scored) : 0;
+  const enabled = !!(payload && payload.ml_enabled !== false && payload.detail !== 'disabled');
+  let keys = [...new Set([...ML_COUNT_ORDER, ...Object.keys(counts)])].filter(function (k) {
+    return k !== 'detail' && k !== 'enabled';
+  });
+  keys.sort(function (a, b) {
+    const ia = ML_COUNT_ORDER.indexOf(a);
+    const ib = ML_COUNT_ORDER.indexOf(b);
+    if (ia === -1 && ib === -1) return a.localeCompare(b);
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+
+  if (!enabled || payload.detail === 'no_model_file') {
+    panel.innerHTML = '<p class="anom-ml-counts-msg">ML classifier unavailable: missing <code>artifacts/anomaly_classifier.joblib</code> or set <code>ML_ANOM_CLASSIFIER_ENABLED=false</code> in backend/.env (see docs/ml-classifier.md).</p>';
+    if (hintEl) hintEl.textContent = payload.message || '';
+    return;
+  }
+
+  const chips = keys.map(function (k) {
+    const n = counts[k] != null ? Number(counts[k]) : 0;
+    return '<span class="anom-ml-chip" data-mlcls="' + escapeHtml(k) + '">' + escapeHtml(k) + ' <strong>' + n + '</strong></span>';
+  }).join('');
+  panel.innerHTML =
+    '<div class="anom-ml-counts-head">Predicted labels <span class="anom-ml-counts-meta">' + rowsScored + ' rows scored</span></div>' +
+    '<div class="anom-ml-chips">' + chips + '</div>';
+  if (hintEl) hintEl.textContent = payload.message ? String(payload.message) : '';
+}
+
+async function runMlClassifyStoredWindow() {
+  var hintEl = document.getElementById('mlScanHint');
+  var btn = document.getElementById('mlScanBtn');
+  var btnLabel = btn ? btn.textContent : '';
+  try {
+    var plantRaw = getViewDataPlantId();
+    if (!plantRaw) {
+      if (hintEl) {
+        hintEl.textContent =
+          'Select a sample in the dropdown above (e.g. Apple · TM-S001), then click Run ML scan.';
+      }
+      fireAlert(
+        'warning',
+        'Select a sample',
+        'Use the sample dropdown on this tab — it must not be \"All Samples\".',
+        5000,
+      );
+      return;
+    }
+    var pidNum = parseInt(String(plantRaw), 10);
+    if (!Number.isFinite(pidNum) || pidNum < 1) {
+      if (hintEl) hintEl.textContent = 'Invalid sample id — pick a plant from the list again.';
+      fireAlert('warning', 'Invalid sample', 'Could not read plant id from the dropdown.', 4000);
+      return;
+    }
+    var hoursEl = document.getElementById('mlScanHours');
+    var hours = Math.min(Math.max(parseInt(hoursEl && hoursEl.value ? hoursEl.value : '24', 10) || 24, 1), 720);
+    var signal = undefined;
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      signal = AbortSignal.timeout(25000);
+    } else if (typeof AbortController !== 'undefined') {
+      var ac = new AbortController();
+      setTimeout(function () {
+        try {
+          ac.abort();
+        } catch (_) {
+          /* ignore */
+        }
+      }, 25000);
+      signal = ac.signal;
+    }
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Scanning…';
+    }
+    if (hintEl) hintEl.textContent = 'Running…';
+
+    var ep = CONFIG.ENDPOINTS.mlClassifyWindow || '/api/ml/classify/window';
+    var res = await authFetch(API_BASE + ep, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plant_id: pidNum, hours }),
+      signal: signal,
+    });
+    var j = await res.json().catch(function () {
+      return {};
+    });
+    if (!res.ok) {
+      var detMsg = '';
+      if (Array.isArray(j.detail)) {
+        detMsg = j.detail
+          .map(function (item) {
+            if (item && typeof item === 'object' && item.msg != null) return String(item.msg);
+            return String(typeof item === 'object' ? JSON.stringify(item) : item);
+          })
+          .join('; ');
+      } else if (j.detail != null) {
+        detMsg = typeof j.detail === 'object' ? JSON.stringify(j.detail) : String(j.detail);
+      }
+      renderMlCountsPanel({ ml_enabled: false, message: '', detail: 'disabled' });
+      throw new Error(detMsg || 'HTTP ' + res.status);
+    }
+    renderMlCountsPanel(j);
+    var rows = j.rows_scored != null ? Number(j.rows_scored) : 0;
+    if (hintEl && rows === 0) {
+      hintEl.textContent =
+        '0 rows in this window for sample #' +
+        pidNum +
+        '. Widen ML hours or the Graphs time range, or ingest / backfill data with plant_id.';
+    }
+    try {
+      var pan = document.getElementById('mlCountsPanel');
+      if (pan) pan.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (_) {
+      /* ignore */
+    }
+    fireAlert('ok', 'ML scan', 'Scored ' + rows + ' telemetry rows. (Label chips are directly above.)', 5500);
+  } catch (e) {
+    console.warn('runMlClassifyStoredWindow failed', e);
+    var msg = String(e && e.name === 'AbortError' ? 'Request timed out (25s).' : e.message || e);
+    if (hintEl) hintEl.textContent = msg;
+    try {
+      fireAlert('danger', 'ML scan failed', msg, 6000);
+    } catch (_) {
+      /* ignore */
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = btnLabel || 'Run ML scan';
+    }
   }
 }
 
@@ -222,23 +409,47 @@ function anomCollectFiltered() {
 }
 
 async function fetchAnomalies() {
-  if (window.anomSyntheticLabActive) return;
+  var hintEl = document.getElementById('anomFetchHint');
+  if (hintEl) hintEl.textContent = '';
   try {
-    const hourRange = parseInt(document.getElementById('graphRange')?.value || '168', 10);
+    const hourRange =
+      typeof coerceGraphHourRange === 'function'
+        ? coerceGraphHourRange()
+        : Math.min(Math.max(parseInt(document.getElementById('graphRange')?.value || '24', 10) || 24, 1), 8760);
     const sampleEl = document.getElementById('graphSample');
     const plantId = sampleEl && sampleEl.value ? String(sampleEl.value).trim() : '';
-    let path = CONFIG.ENDPOINTS.anomalies + '?hours=' + encodeURIComponent(String(Math.min(Math.max(hourRange, 1), 8760)));
+    let path = CONFIG.ENDPOINTS.anomalies + '?hours=' + encodeURIComponent(String(hourRange));
     if (plantId) path += '&plant_id=' + encodeURIComponent(plantId);
     const d = await apiFetch(path);
     anomalyLog = d.events || [];
     updateAnomalySummaryCards(d);
     renderAnomalyTable();
-    if (anomDataSource === 'live' && anomSimReadings.length && document.getElementById('tab-anomalies')?.classList.contains('active')) {
+    if (anomSimReadings.length && document.getElementById('tab-anomalies')?.classList.contains('active')) {
       renderAnomCharts();
       renderAnomalyScoreTimeline();
     }
-  } catch {
-    resetAnomalySummaryCards();
+  } catch (e) {
+    console.warn('fetchAnomalies failed', e);
+    anomalyLog = [];
+    updateAnomalySummaryCards({
+      total: 0,
+      by_type: {},
+      by_severity: {},
+      spike: 0,
+      drift: 0,
+      noise: 0,
+      dropout: 0,
+      correlation: 0,
+      level_shift: 0,
+      ewma_breach: 0,
+      events: [],
+    });
+    renderAnomalyTable();
+    var msg =
+      'Could not load anomaly events from the server (check login, API_BASE/port in js/config.js, and that uvicorn is running). ' +
+      'Charts may still reflect telemetry.';
+    var h = document.getElementById('anomFetchHint');
+    if (h) h.textContent = msg;
   }
 }
 
@@ -254,17 +465,6 @@ const ANOM_TYPE_META = {
   ewma_breach: { icon:'📐', color:'#5a6a1a', label:'EWMA Breach',  pill:'warning' },
   seasonal:    { icon:'🌗', color:'#3a6a8a', label:'Seasonal',     pill:'info' },
 };
-const SCENARIO_INFO = {
-  stable:      'Generates clean data at setpoints with normal sensor noise. Should produce zero anomalies — use as a baseline sanity check.',
-  drift:       'Applies a linear temperature increase of 0.15°C per reading, simulating a heater malfunction or calibration drift.',
-  noise:       'Injects high-variance Gaussian noise (σ=4.0) onto temperature in the second half, simulating electrical interference or a failing sensor.',
-  dropout:     'Removes 8 consecutive readings mid-stream, simulating a Bluetooth disconnection or sensor power loss.',
-  spike:       'Inserts 3 extreme outlier readings (±15°C from normal), simulating DHT11 glitch values of 0 or 255.',
-  level_shift: 'Applies an abrupt +8°C step change halfway through — like someone opening a greenhouse door and leaving it open.',
-  correlation: 'Randomises humidity independently of temperature for 30% of the data, breaking the physical correlation the DHT11 normally produces.',
-  all:         'Applies every injection simultaneously: drift + noise + dropout + spikes + level shift + correlation break. Stress-test for the full detection pipeline.',
-};
-
 function updateAnomalySummaryCards(d) {
   setText('anomTotal',      d.total ?? 0);
   setText('anomSpike',      d.spike ?? d.by_type?.spike ?? 0);
@@ -299,90 +499,6 @@ function resetAnomalySummaryCards() {
   for (const id of ['anomTotal','anomSpike','anomDrift','anomNoise','anomDropout','anomCorrelation','anomLevelShift','anomEwma']) setText(id, '--');
   const sevBar = document.getElementById('anomSevBar');
   if (sevBar) sevBar.classList.remove('is-visible');
-}
-
-function formatScenarioLabel(scenario) {
-  if (!scenario) return '';
-  return scenario.split('_').map(function(part) {
-    return part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : '';
-  }).join(' ');
-}
-
-async function runAnomalySimulation() {
-  window.anomSyntheticLabActive = true;
-  const btn = document.getElementById('simRunBtn');
-  const card = document.getElementById('anomChartCard');
-  btn.disabled = true; btn.textContent = 'Running…';
-  const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:absolute;inset:0;background:rgba(245,242,232,.7);display:flex;align-items:center;justify-content:center;border-radius:12px;z-index:2;';
-  overlay.innerHTML = '<div style="width:28px;height:28px;border:3px solid var(--cream-dark);border-top-color:var(--olive);border-radius:50%;animation:spin .6s linear infinite;"></div>';
-  card.style.position = 'relative';
-  card.appendChild(overlay);
-
-  const scenario = document.getElementById('simScenario').value;
-  const duration = document.getElementById('simDuration').value;
-
-  const infoPanel = document.getElementById('anomScenarioInfo');
-  const tagEl = document.getElementById('anomScenarioTag');
-  const descEl = document.getElementById('anomScenarioDesc');
-  if (infoPanel && tagEl && descEl) {
-    infoPanel.classList.add('is-visible');
-    tagEl.textContent = formatScenarioLabel(scenario);
-    descEl.textContent = SCENARIO_INFO[scenario] || '';
-  }
-
-  try {
-    const res = await authFetch(API_BASE + '/api/anomalies/simulate?scenario=' + scenario + '&duration_min=' + duration, { method: 'POST' });
-    const d = await res.json();
-    anomSimReadings = d.readings || [];
-    anomalyLog = d.events || [];
-    anomDataSource = 'synthetic_lab';
-    updateAnomDataSourceBanner();
-    updateAnomalySummaryCards(d);
-    buildAnomSensorPills();
-    anomResetVisible();
-    renderAnomCharts();
-    renderAnomalyScoreTimeline();
-    renderAnomalyTable();
-    const total = d.total || 0;
-    fireAlert(total > 0 ? 'warning' : 'ok', 'Simulation Complete', anomSimReadings.length + ' readings · ' + total + ' anomalies detected', 5000);
-  } catch (err) {
-    fireAlert('danger', 'Simulation Failed', 'Cannot reach backend — make sure uvicorn is running on port ' + CONFIG.PORT, 6000);
-    console.error(err);
-    window.anomSyntheticLabActive = false;
-  } finally {
-    btn.disabled = false; btn.textContent = 'Run synthetic lab';
-    overlay.remove();
-  }
-}
-
-function clearAnomalySimulation() {
-  window.anomSyntheticLabActive = false;
-  anomDataSource = 'live';
-  updateAnomDataSourceBanner();
-  authFetch(API_BASE + '/api/anomalies/clear', { method: 'DELETE' }).catch(() => {});
-  anomalyLog = [];
-  anomSimReadings = [];
-  anomResetVisible();
-  anomFocusTs = null;
-  document.getElementById('anomFocusBar')?.classList.remove('visible');
-  resetAnomalySummaryCards();
-  if (charts.anomSim) { for (const c of Object.values(charts.anomSim)) { if (c && c.destroy) c.destroy(); } charts.anomSim = null; }
-  if (charts.anomScore) { charts.anomScore.destroy(); charts.anomScore = null; }
-  document.getElementById('anomChartWrap').innerHTML = '<div class="anom-placeholder"><span class="anom-placeholder__glyph" aria-hidden="true">◇</span><p class="anom-placeholder__text">Loading live series from the <strong>Graphs</strong> filters, or run <strong>Synthetic lab</strong> below for an offline demo.</p></div>';
-  document.getElementById('anomScoreWrap').innerHTML = '<div class="anom-placeholder anom-placeholder--compact"><p class="anom-placeholder__text">Scores use the anomaly log for the current window.</p></div>';
-  document.getElementById('anomSensorPills').innerHTML = '';
-  document.getElementById('anomalyBody').innerHTML = '<div class="anom-placeholder"><span class="anom-placeholder__glyph" aria-hidden="true">◇</span><p class="anom-placeholder__text">Loading events from the server…</p></div>';
-  document.getElementById('anomLogCount').textContent = '';
-  const infoPanel = document.getElementById('anomScenarioInfo');
-  if (infoPanel) infoPanel.classList.remove('is-visible');
-  if (typeof fetchTelemetry === 'function') {
-    fetchTelemetry().then(function () {
-      if (typeof fetchAnomalies === 'function') fetchAnomalies();
-    });
-  } else if (typeof fetchAnomalies === 'function') {
-    fetchAnomalies();
-  }
 }
 
 function buildAnomSensorPills() {
@@ -505,7 +621,7 @@ function renderAnomalyScoreTimeline() {
     type: 'bar', data: { labels, datasets: [{ label:'Anomaly Score', data:scores, backgroundColor:g, borderColor:'rgba(168,50,50,0.7)', borderWidth:1, borderRadius:2 }] },
     options: {
       responsive:true, maintainAspectRatio:true, animation:{duration:300},
-      plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#2c2a1e', bodyFont:{family:'DM Mono',size:10}, cornerRadius:6, callbacks:{ label:ctx => { const ts = anomSimReadings[ctx.dataIndex]?.timestamp; const n = ts ? anomEventsNearReadingTs(ts).length : 0; return 'Score: '+ctx.raw+' ('+n+' events)'; } } },
+      plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#2c2a1e', bodyFont:{family:'DM Mono',size:10}, cornerRadius:6, callbacks:{ label:ctx => { const ts = anomSimReadings[ctx.dataIndex]?.timestamp; const n = ts ? anomEventsNearReadingTs(ts).length : 0; return 'Score: '+ctx.raw+' ('+n+' events)'; } } } },
       scales:{ x:{display:false}, y:{beginAtZero:true,ticks:{font:{family:'DM Mono',size:9},stepSize:1},grid:{color:'#e8e3d033'}} }
     }
   });
@@ -527,7 +643,11 @@ function renderAnomalyTable() {
   if (logCount) logCount.textContent = countLabel;
 
   if (!filtered.length) {
-    body.innerHTML = '<div class="anom-placeholder"><span class="anom-placeholder__glyph" aria-hidden="true">◇</span><p class="anom-placeholder__text">No events match the current filters.</p></div>';
+    const emptyRegister =
+      !anomalyLog.length
+        ? 'No anomaly events in this window. That can mean none were detected yet, no telemetry rows for this sample and range, rows lack plant_id (see banner above), or the backend could not load events.'
+        : 'No events match the current filters.';
+    body.innerHTML = '<div class="anom-placeholder"><span class="anom-placeholder__glyph" aria-hidden="true">◇</span><p class="anom-placeholder__text">' + emptyRegister + '</p></div>';
     return;
   }
 
@@ -643,7 +763,10 @@ function buildDetailPanel(event) {
 }
 
 function exportAnomalyCSV() {
-  if (!anomalyLog.length) { fireAlert('warning','No Data','Load live events (ingest or wait for refresh) or run the synthetic lab.',3000); return; }
+  if (!anomalyLog.length) {
+    fireAlert('warning', 'No Data', 'Load live persisted events from the API (ingest / reprocess window) first.', 3000);
+    return;
+  }
   const header = 'Timestamp,Type,Sensor,Description,Severity,Status';
   const rows = anomalyLog.map(e => {
     const desc = (e.description == null ? '' : String(e.description)).replace(/"/g,'""');
@@ -653,12 +776,23 @@ function exportAnomalyCSV() {
 }
 
 function printAnomalyReport() {
-  if (!anomalyLog.length) { fireAlert('warning','No Data','Load live events or run the synthetic lab.',3000); return; }
+  if (!anomalyLog.length) {
+    fireAlert('warning', 'No Data', 'Load live persisted events from the API first.', 3000);
+    return;
+  }
   const w = window.open('', '_blank');
-  const scenario = document.getElementById('simScenario').value;
-  let html = '<html><head><title>TerraMetric Anomaly Report</title><style>body{font-family:Arial,sans-serif;padding:40px;color:#333;}h1{font-size:18px;}table{border-collapse:collapse;width:100%;margin-top:16px;font-size:11px;}th,td{border:1px solid #ddd;padding:6px 10px;text-align:left;}th{background:#f5f0e0;}.badge{padding:2px 6px;border-radius:4px;font-size:9px;font-weight:bold;}.danger{background:#ffe0e0;color:#8a1010;}.warning{background:#fff0c0;color:#8a5000;}.info{background:#e0f0ff;color:#204060;}</style></head><body>';
+  const sample = document.getElementById('graphSample')?.value || '';
+  let html =
+    '<html><head><title>TerraMetric Anomaly Report</title><style>body{font-family:Arial,sans-serif;padding:40px;color:#333;}h1{font-size:18px;}table{border-collapse:collapse;width:100%;margin-top:16px;font-size:11px;}th,td{border:1px solid #ddd;padding:6px 10px;text-align:left;}th{background:#f5f0e0;}.badge{padding:2px 6px;border-radius:4px;font-size:9px;font-weight:bold;}.danger{background:#ffe0e0;color:#8a1010;}.warning{background:#fff0c0;color:#8a5000;}.info{background:#e0f0ff;color:#204060;}</style></head><body>';
   html += '<h1>TerraMetric Anomaly Detection Report</h1>';
-  html += '<p style="font-size:12px;color:#666;">Scenario: <strong>' + escapeHtml(scenario) + '</strong> · Generated: ' + new Date().toLocaleString() + ' · Total events: ' + anomalyLog.length + '</p>';
+  html +=
+    '<p style="font-size:12px;color:#666;">Sample: <strong>' +
+    escapeHtml(sample ? '#' + sample : 'all combined') +
+    '</strong> · Generated: ' +
+    new Date().toLocaleString() +
+    ' · Total events: ' +
+    anomalyLog.length +
+    '</p>';
   html += '<table><tr><th>Time</th><th>Type</th><th>Sensor</th><th>Description</th><th>Severity</th></tr>';
   for (const e of anomalyLog) {
     const sev = (e.severity || 'info');
@@ -676,9 +810,14 @@ initAnomalyBodyDelegateOnce();
 updateAnomDataSourceBanner();
 
 window.addEventListener('samples:changed', function () {
-  if (window.anomSyntheticLabActive) return;
   if (typeof fetchAnomalies === 'function') fetchAnomalies();
   if (typeof fetchTelemetry === 'function' && document.getElementById('tab-anomalies')?.classList.contains('active')) {
     fetchTelemetry();
   }
+  if (typeof refreshAnomalyPlantIdSessionHint === 'function' && document.getElementById('tab-anomalies')?.classList.contains('active')) {
+    refreshAnomalyPlantIdSessionHint();
+  }
 });
+
+window.runMlClassifyStoredWindow = runMlClassifyStoredWindow;
+window.renderMlCountsPanel = renderMlCountsPanel;

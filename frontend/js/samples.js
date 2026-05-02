@@ -475,7 +475,7 @@ async function startSampleRecording() {
     fireAlert('ok', 'Recording started',
       'Starting a new recording ends any other active recording. Telemetry tags to this sample until you stop.' + tail,
       5500);
-    if (payload.dummy_stream && typeof setGraphSampleForPlant === 'function') {
+    if (typeof setGraphSampleForPlant === 'function') {
       setGraphSampleForPlant(t.id);
     }
     await refreshActiveRecording();

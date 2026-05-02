@@ -1,0 +1,17 @@
+{
+  "sklearn_version": "1.5.2",
+  "feature_version": "v1",
+  "artifact": [
+    "correlation",
+    "drift",
+    "dropout",
+    "ewma_breach",
+    "level_shift",
+    "missing_data",
+    "noise",
+    "normal",
+    "other",
+    "seasonal",
+    "spike"
+  ]
+}

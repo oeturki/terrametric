@@ -9,6 +9,22 @@
 
 ## Backend Setup
 
+### Windows laptop (single command)
+
+From the **`backend`** folder:
+
+```bat
+start_terrametric_laptop.bat
+```
+
+This creates **`venv`** on first run, **`pip install -r requirements.txt`** each launch, then serves app + API at **http://127.0.0.1:8000**.  
+
+Checklist + URLs: **`docs/laptop-smoke-test.md`** · readiness: http://127.0.0.1:8000/api/health/ready
+
+API docs: http://127.0.0.1:8000/docs  
+
+### Manual (any OS)
+
 ```bash
 cd backend
 python -m venv venv
@@ -19,7 +35,6 @@ uvicorn main:app --reload
 ```
 
 Backend runs at http://localhost:8000
-API docs at http://localhost:8000/docs
 
 ## Frontend Setup
 

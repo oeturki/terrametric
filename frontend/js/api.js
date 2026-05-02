@@ -99,44 +99,157 @@ async function fetchLatest() {
 
 const GRAPH_SAMPLE_STORAGE_KEY = 'terrametric-graph-sample';
 
+/** When true, graph ↔ Anomalies duplicate controls are mirrored programmatically (avoids recursion). */
+var _graphDupSync = false;
+
+function _selectHasValue(selectEl, value) {
+  if (!selectEl) return false;
+  return [...selectEl.options].some(function (op) { return op.value === value; });
+}
+
+/** Copy canonical Graphs filter values onto the Anomalies-tab duplicates. */
+function mirrorAnomalyDupFromGraph() {
+  const gSel = document.getElementById('graphSample');
+  const aSel = document.getElementById('anomSampleSelect');
+  const gr = document.getElementById('graphRange');
+  const ar = document.getElementById('anomGraphRange');
+  const gb = document.getElementById('graphBin');
+  const ab = document.getElementById('anomGraphBin');
+  const gs = document.getElementById('graphSessionOnly');
+  const as = document.getElementById('anomGraphSessionOnly');
+  _graphDupSync = true;
+  try {
+    if (gSel && aSel && _selectHasValue(gSel, gSel.value) && _selectHasValue(aSel, gSel.value)) {
+      aSel.value = gSel.value;
+    }
+    if (gr && ar && _selectHasValue(ar, gr.value)) ar.value = gr.value;
+    if (gb && ab && _selectHasValue(ab, gb.value)) ab.value = gb.value;
+    if (gs && as) {
+      as.checked = gs.checked;
+      as.disabled = gs.disabled;
+    }
+  } finally {
+    _graphDupSync = false;
+  }
+}
+
+/** Copy Anomalies-tab duplicate controls onto the canonical Graphs elements, then callers refresh data. */
+function mirrorGraphFromAnomalyDup() {
+  const gSel = document.getElementById('graphSample');
+  const aSel = document.getElementById('anomSampleSelect');
+  const gr = document.getElementById('graphRange');
+  const ar = document.getElementById('anomGraphRange');
+  const gb = document.getElementById('graphBin');
+  const ab = document.getElementById('anomGraphBin');
+  const gs = document.getElementById('graphSessionOnly');
+  const as = document.getElementById('anomGraphSessionOnly');
+  _graphDupSync = true;
+  try {
+    if (gSel && aSel && _selectHasValue(gSel, aSel.value)) {
+      gSel.value = aSel.value;
+      sessionStorage.setItem(GRAPH_SAMPLE_STORAGE_KEY, gSel.value);
+    }
+    if (gr && ar && _selectHasValue(gr, ar.value)) gr.value = ar.value;
+    if (gb && ab && _selectHasValue(gb, ab.value)) gb.value = ab.value;
+    if (gs && as && !gs.disabled) gs.checked = as.checked;
+  } finally {
+    _graphDupSync = false;
+  }
+}
+
+function maybeRefreshAnomaliesAfterGraphFilterChange() {
+  if (!document.getElementById('tab-anomalies')?.classList.contains('active')) return;
+  if (typeof fetchAnomalies === 'function') fetchAnomalies();
+  if (typeof refreshAnomalyPlantIdSessionHint === 'function') refreshAnomalyPlantIdSessionHint();
+}
+
 function populateGraphSampleSelect(plants) {
   const sel = document.getElementById('graphSample');
-  if (!sel) return;
+  const anomSel = document.getElementById('anomSampleSelect');
   const saved = sessionStorage.getItem(GRAPH_SAMPLE_STORAGE_KEY);
-  sel.innerHTML = '';
-  const optAll = document.createElement('option');
-  optAll.value = '';
-  optAll.textContent = 'All Samples (combined)';
-  optAll.title =
-    'All telemetry in the selected time window (every sample + any unscoped readings), one series.';
-  sel.appendChild(optAll);
-  for (const p of plants || []) {
-    if (p == null || p.id == null) continue;
-    const o = document.createElement('option');
-    o.value = String(p.id);
-    const parts = [p.name || 'Unnamed'];
-    if (p.qr) parts.push(p.qr);
-    o.textContent = parts.join(' · ');
-    sel.appendChild(o);
+
+  function fillOne(selectEl) {
+    if (!selectEl) return;
+    selectEl.innerHTML = '';
+    const optAll = document.createElement('option');
+    optAll.value = '';
+    optAll.textContent = 'All Samples (combined)';
+    optAll.title =
+      'All telemetry in the selected time window (every sample + any unscoped readings), one series.';
+    selectEl.appendChild(optAll);
+    for (const p of plants || []) {
+      if (p == null || p.id == null) continue;
+      const o = document.createElement('option');
+      o.value = String(p.id);
+      const parts = [p.name || 'Unnamed'];
+      if (p.qr) parts.push(p.qr);
+      o.textContent = parts.join(' · ');
+      selectEl.appendChild(o);
+    }
   }
-  if (saved !== null && saved !== undefined && [...sel.options].some(function (op) { return op.value === saved; })) {
+  fillOne(sel);
+  fillOne(anomSel);
+
+  if (saved !== null && saved !== undefined && sel && [...sel.options].some(function (op) { return op.value === saved; })) {
     sel.value = saved;
+    if (anomSel) anomSel.value = saved;
   }
+  mirrorAnomalyDupFromGraph();
 }
 
 function onGraphSampleFilterChange() {
   const sel = document.getElementById('graphSample');
   if (sel) sessionStorage.setItem(GRAPH_SAMPLE_STORAGE_KEY, sel.value);
+  if (!_graphDupSync) mirrorAnomalyDupFromGraph();
   fetchTelemetry();
+  maybeRefreshAnomaliesAfterGraphFilterChange();
 }
 
 /** Called from index.html when the time-range pill changes (was missing before). */
 function onGraphRangeChange() {
+  if (!_graphDupSync) mirrorAnomalyDupFromGraph();
   fetchTelemetry();
+  maybeRefreshAnomaliesAfterGraphFilterChange();
+}
+
+function onGraphBinChange() {
+  if (!_graphDupSync) mirrorAnomalyDupFromGraph();
+  fetchTelemetry();
+  maybeRefreshAnomaliesAfterGraphFilterChange();
 }
 
 function onGraphSessionOnlyChange() {
+  if (!_graphDupSync) mirrorAnomalyDupFromGraph();
   fetchTelemetry();
+  maybeRefreshAnomaliesAfterGraphFilterChange();
+}
+
+function onAnomSampleFilterChange() {
+  if (_graphDupSync) return;
+  mirrorGraphFromAnomalyDup();
+  fetchTelemetry();
+  maybeRefreshAnomaliesAfterGraphFilterChange();
+}
+
+function onAnomRangeChange() {
+  if (_graphDupSync) return;
+  mirrorGraphFromAnomalyDup();
+  fetchTelemetry();
+  maybeRefreshAnomaliesAfterGraphFilterChange();
+}
+
+function onAnomBinChange() {
+  if (_graphDupSync) return;
+  mirrorGraphFromAnomalyDup();
+  fetchTelemetry();
+  maybeRefreshAnomaliesAfterGraphFilterChange();
+}
+
+function onAnomSessionOnlyChange() {
+  if (_graphDupSync) return;
+  mirrorGraphFromAnomalyDup();
+  fetchTelemetry();
+  maybeRefreshAnomaliesAfterGraphFilterChange();
 }
 
 /**
@@ -151,6 +264,7 @@ function setGraphSampleForPlant(plantId) {
   if ([...sel.options].some(function (op) { return op.value === v; })) {
     sel.value = v;
     sessionStorage.setItem(GRAPH_SAMPLE_STORAGE_KEY, v);
+    mirrorAnomalyDupFromGraph();
   }
 }
 
@@ -161,18 +275,42 @@ function setGraphSampleForPlant(plantId) {
 //   72h -> 300s     (~864 pts)
 //   168h (7d) -> 1800s (~336 pts)
 function _autoBinSeconds(rangeHours) {
-  if (rangeHours <= 6)   return 0;
-  if (rangeHours <= 24)  return 60;
-  if (rangeHours <= 72)  return 300;
+  const h = Number.isFinite(Number(rangeHours)) ? Number(rangeHours) : 24;
+  if (h <= 6)   return 0;
+  if (h <= 24)  return 60;
+  if (h <= 72)  return 300;
   return 1800;
 }
 
+/** Canonical hours for telemetry + anomalies (avoid NaN which breaks FastAPI queries). */
+function coerceGraphHourRange() {
+  const raw = parseInt(document.getElementById('graphRange')?.value || '24', 10);
+  if (!Number.isFinite(raw) || raw < 1) return 24;
+  return Math.min(raw, 8760);
+}
+
+/** Shape used by Chart sync on the Anomalies tab (matches timeseries JSON). */
+function readingsArrayToTelemetryPayload(readings) {
+  return {
+    timestamps: readings.map(function (r) { return r.timestamp; }),
+    temperature: readings.map(function (r) { return r.temperature; }),
+    humidity: readings.map(function (r) { return r.humidity; }),
+    light: readings.map(function (r) { return r.light; }),
+    plant_height: readings.map(function (r) {
+      return r.height != null ? r.height : r.plant_height;
+    }),
+  };
+}
+
 async function fetchTelemetry() {
-  const hourRange = parseInt(document.getElementById('graphRange')?.value || '24', 10);
+  const hourRange = coerceGraphHourRange();
   const sampleEl  = document.getElementById('graphSample');
   const plantId   = sampleEl && sampleEl.value ? String(sampleEl.value).trim() : '';
   const binSel    = document.getElementById('graphBin')?.value ?? 'auto';
-  const binSeconds = binSel === 'auto' ? _autoBinSeconds(hourRange) : parseInt(binSel, 10);
+  const binParsed = parseInt(binSel, 10);
+  const binSeconds = binSel === 'auto'
+    ? _autoBinSeconds(hourRange)
+    : (Number.isFinite(binParsed) ? binParsed : 0);
   const sessionOnlyEl = document.getElementById('graphSessionOnly');
 
   let activeSess = null;
@@ -214,17 +352,24 @@ async function fetchTelemetry() {
     if (sessHint) {
       const pid = plantId ? Number(plantId) : null;
       if (activeSess && pid != null && Number(activeSess.plant_id) === pid) {
-        const scen = activeSess.scenario || 'stable';
-        const mode = activeSess.dummy_stream ? 'Dummy stream' : 'Live device';
-        const tick = activeSess.dummy_stream && activeSess.stream_interval_sec
-          ? ' every ' + activeSess.stream_interval_sec + 's'
-          : '';
-        sessHint.textContent = mode + ' · session #' + activeSess.id + ' · scenario \u201c' + scen + '\u201d' + tick +
-          '. Graphs plot all rows for this sample in the window unless \u201cThis recording only\u201d is checked.';
+        let line;
+        if (activeSess.dummy_stream) {
+          const scen = activeSess.scenario || 'stable';
+          const tick = activeSess.stream_interval_sec
+            ? ' every ' + activeSess.stream_interval_sec + 's'
+            : '';
+          line = 'Dummy stream · session #' + activeSess.id + ' · scenario \u201c' + scen + '\u201d' + tick +
+            ' (server-generated readings).';
+        } else {
+          line = 'Live recording · session #' + activeSess.id +
+            ' · data is from device ingest only. The Manage Samples \u201cscenario\u201d is for dummy stream and is not applied now.';
+        }
+        line += ' Graphs show all rows for this sample in the window unless \u201cThis recording only\u201d is checked.';
+        sessHint.textContent = line;
         sessHint.style.display = 'block';
       } else if (activeSess && !plantId) {
         sessHint.textContent = 'Recording active on plant #' + activeSess.plant_id +
-          ' — select that sample above to match dummy scenario / session filter.';
+          ' \u2014 pick that sample above to see session hints and filtering.';
         sessHint.style.display = 'block';
       } else {
         sessHint.textContent = '';
@@ -252,21 +397,31 @@ async function fetchTelemetry() {
         hint.textContent = '';
       }
     }
+    mirrorAnomalyDupFromGraph();
     updateCharts(readings);
     if (typeof syncAnomalyChartsFromTelemetryPayload === 'function'
-        && !window.anomSyntheticLabActive
         && document.getElementById('tab-anomalies')?.classList.contains('active')) {
       syncAnomalyChartsFromTelemetryPayload(d);
     }
   } catch {
     const hint = document.getElementById('graphFilterHint');
-    if (hint) { hint.style.display = 'none'; hint.textContent = ''; }
+    if (hint) {
+      hint.style.display = 'block';
+      hint.textContent =
+        'Telemetry API unreachable or error — graphs show browser-only demo curves, not Arduino data. Fix login, API_BASE in config.js, and that the backend is running; then reload.';
+    }
     const sessHint = document.getElementById('graphActiveSessionHint');
     if (sessHint) { sessHint.textContent = ''; sessHint.style.display = 'none'; }
     const meta = document.getElementById('graphRowMeta');
-    if (meta) meta.textContent = 'offline · demo series';
+    if (meta) meta.textContent = 'offline · demo series (not from server)';
+    mirrorAnomalyDupFromGraph();
     const fallback = generateFallbackTelemetry(hourRange);
     updateCharts(fallback);
+    var dFb = readingsArrayToTelemetryPayload(fallback);
+    if (typeof syncAnomalyChartsFromTelemetryPayload === 'function'
+        && document.getElementById('tab-anomalies')?.classList.contains('active')) {
+      syncAnomalyChartsFromTelemetryPayload(dFb);
+    }
   }
 }
 
@@ -456,11 +611,13 @@ async function saveSample() {
 
 // ── Home: Pi camera + ventilation (laptop API proxies to `pi/hardware_agent.py`) ──
 
+// Toggle state is session-only (not localStorage): a stale "on" flag used to make the *next* click
+// send { on: false } (servo detach) while the user expects "Activate" after fixing the Pi / BT link.
 var TERRAMETRIC_VENT_STATE_KEY = 'terrametric_ventilation_on';
 
 function _ventilationIsOn() {
   try {
-    return localStorage.getItem(TERRAMETRIC_VENT_STATE_KEY) === '1';
+    return sessionStorage.getItem(TERRAMETRIC_VENT_STATE_KEY) === '1';
   } catch (_) {
     return false;
   }
@@ -535,7 +692,7 @@ async function homeHardwareVentilation(ev) {
       throw new Error(msg);
     }
     try {
-      localStorage.setItem(TERRAMETRIC_VENT_STATE_KEY, turningOn ? '1' : '0');
+      sessionStorage.setItem(TERRAMETRIC_VENT_STATE_KEY, turningOn ? '1' : '0');
     } catch (_) { /* ignore */ }
     syncVentilationButtonLabel();
     var okMsg = (data && data.detail) ? String(data.detail) : (turningOn ? 'Ventilation on' : 'Ventilation off');

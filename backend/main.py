@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from api import (
     admin,
     telemetry, alerts, control, camera, auth, plants, sessions, reports, anomalies, devices,
-    dummy, hardware,
+    dummy, hardware, ml, health_extra,
 )
 from database import Base, bootstrap_auth, engine, run_sqlite_migrations
 from services.dummy_stream import supervisor as stream_supervisor
@@ -69,6 +69,8 @@ app.include_router(sessions.router,   prefix="/api/sessions",   tags=["Sessions"
 app.include_router(reports.router,    prefix="/api/reports",     tags=["Reports"])
 app.include_router(dummy.router,      prefix="/api/dummy",       tags=["Dummy data"])
 app.include_router(hardware.router,  prefix="/api/hardware",    tags=["Pi hardware (proxy)"])
+app.include_router(ml.router,        prefix="/api/ml",           tags=["ML classifier"])
+app.include_router(health_extra.router, prefix="/api/health",    tags=["Health"])
 
 
 @app.get("/health")

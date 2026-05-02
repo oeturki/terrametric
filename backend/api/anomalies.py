@@ -3,7 +3,7 @@ FR10 - Anomaly Detection endpoints.
 
 Live/dummy ingest: events persisted in ``anomaly_detection_events`` (see ``anomaly_runtime``).
 
-Lab: POST /simulate generates synthetic series in-process only (no DB writes) for teaching/demo.
+Lab: POST /simulate is optional behind ``ALLOW_ANOMALY_SIMULATE`` (default false; no longer used by the TerraMetric static UI).
 """
 
 from __future__ import annotations
@@ -19,15 +19,16 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from deps.auth import get_current_user
+from config import settings
 from models.anomaly_detection_event import AnomalyDetectionEvent
 from models.plant import Plant
-from models.reading import Telemetry
 from models.user import User
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from services.anomaly_runtime import get_anomaly_service, reset_anomaly_state_for_plant, run_detection_and_persist
-from services.anomaly_service import AnomalyEvent
+from services.telemetry_service import query_telemetry_for_plant_since
+from services.anomaly_service import AnomalyDetectionService, AnomalyEvent
 from services.detectors.base import Reading
 from services.plant_service import get_plant_for_owner
 from simulation.simulator import (
@@ -200,11 +201,24 @@ def simulate_anomalies(
 ):
     """
     Synthetic lab only: does **not** write telemetry or anomaly rows to the database.
-    """
-    lab_key = 99
-    svc = get_anomaly_service()
-    svc.reset(lab_key)
+    Runs all detectors (including extended) on an ephemeral service so scenarios such as
+    correlation break and level shift remain demonstrable regardless of FR10_EXTENDED_DETECTORS.
 
+    Disabled by default: set ``ALLOW_ANOMALY_SIMULATE=true`` in ``backend/.env`` when you need this route.
+    """
+    if not settings.ALLOW_ANOMALY_SIMULATE:
+        raise HTTPException(status_code=403, detail="Synthetic anomaly simulate is disabled (ALLOW_ANOMALY_SIMULATE).")
+    lab_key = 99
+    svc = AnomalyDetectionService(
+        drift_window=settings.DRIFT_WINDOW_SIZE,
+        noise_window=settings.NOISE_WINDOW_SIZE,
+        noise_warn_mult=settings.NOISE_MULTIPLIER_WARNING,
+        noise_crit_mult=settings.NOISE_MULTIPLIER_CRITICAL,
+        dropout_multiplier=settings.DROPOUT_MULTIPLIER,
+        dropout_baseline_count=settings.DROPOUT_BASELINE_READINGS,
+        extended_detectors=True,
+    )
+    svc.reset(lab_key)
     seed = 42
     series = generate_stable_series(
         duration_min=duration_min,
@@ -275,6 +289,8 @@ def simulate_anomalies(
 @router.delete("/clear")
 def clear_anomalies_lab(_: User = Depends(get_current_user)):
     """Reset only the synthetic-lab detector state (session key 99). Does not delete DB events."""
+    if not settings.ALLOW_ANOMALY_SIMULATE:
+        raise HTTPException(status_code=403, detail="Synthetic anomaly lab clear is disabled (ALLOW_ANOMALY_SIMULATE).")
     get_anomaly_service().reset(99)
     return {"status": "cleared", "scope": "synthetic_lab_session_only"}
 
@@ -301,12 +317,7 @@ def reprocess_anomalies(
 
     reset_anomaly_state_for_plant(plant_id)
 
-    rows = (
-        db.query(Telemetry)
-        .filter(Telemetry.plant_id == plant_id, Telemetry.timestamp >= cutoff)
-        .order_by(Telemetry.timestamp.asc())
-        .all()
-    )
+    rows = query_telemetry_for_plant_since(db, plant_id=plant_id, since=cutoff).all()
     n = 0
     for row in rows:
         run_detection_and_persist(db, row)
