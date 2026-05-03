@@ -49,6 +49,7 @@ backend/terrametric-laptop.local.env
 backend/data/captures/
 
 # Database
+backend/greenhouse.db
 
 # Logs
 *.log
