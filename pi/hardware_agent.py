@@ -16,12 +16,19 @@ Install (Pi):
   sudo apt install -y python3-picamera2 python3-pil pigpio
   pip install -r pi/requirements-hardware-agent.txt
   sudo pigpiod
+
+Camera backends (Picamera2 uses libcamera; raspistill uses the legacy/stack that often still works):
+  export TERRA_CAPTURE_BACKEND=auto   # default: try Picamera2, then raspistill on failure
+  export TERRA_CAPTURE_BACKEND=raspistill   # legacy only when libcamera sees no cameras
 """
 
 from __future__ import annotations
 
 import io
 import os
+import shutil
+import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -72,8 +79,8 @@ def _require_key(x_device_key: Optional[str]) -> None:
         raise HTTPException(status_code=401, detail="Invalid or missing X-Device-Key")
 
 
-def _capture_jpeg_bytes() -> bytes:
-    """Return a JPEG using Picamera2 (Bookworm / modern Pi OS)."""
+def _capture_jpeg_via_picamera2() -> bytes:
+    """Return JPEG using Picamera2 + libcamera (preferred on Bookworm/modern setups)."""
     try:
         from picamera2 import Picamera2  # type: ignore
     except ImportError as e:
@@ -99,13 +106,82 @@ def _capture_jpeg_bytes() -> bytes:
         picam2.stop()
         picam2.close()
 
-    # Still capture is often RGB / RGBA depending on mode; convert to RGB for JPEG
     im = Image.fromarray(arr)
     if im.mode != "RGB":
         im = im.convert("RGB")
     buf = io.BytesIO()
     im.save(buf, format="JPEG", quality=85)
     return buf.getvalue()
+
+
+def _capture_jpeg_via_raspistill() -> bytes:
+    """JPEG via legacy ``raspistill`` MMAL/OpenMAX stack (works when Picamera2/libcamera sees no camera)."""
+    exe = shutil.which("raspistill")
+    if not exe:
+        raise RuntimeError(
+            "raspistill not in PATH — install legacy Raspberry Pi camera tools "
+            "(e.g. enable legacy camera in raspi-config and install raspistill / libraspberrypi-bin)"
+        )
+
+    fd, tmp_path = tempfile.mkstemp(suffix=".jpg")
+    os.close(fd)
+    blob = b""
+    try:
+        subprocess.run(
+            [
+                exe,
+                "-n",
+                "-t",
+                "800",
+                "-q",
+                "85",
+                "-o",
+                tmp_path,
+            ],
+            check=True,
+            capture_output=True,
+            timeout=60,
+            text=False,
+        )
+        with open(tmp_path, "rb") as f:
+            blob = f.read()
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("raspistill timed out") from e
+    except subprocess.CalledProcessError as e:
+        err = e.stderr.decode("utf-8", errors="replace") if e.stderr else ""
+        raise RuntimeError(f"raspistill failed (exit {e.returncode}): {err}") from e
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    if not blob:
+        raise RuntimeError("raspistill produced empty output")
+    return blob
+
+
+def _capture_jpeg_bytes() -> bytes:
+    """JPEG still: Picamera2, raspistill, or ``auto`` (try Picamera2 then raspistill)."""
+
+    backend = os.environ.get("TERRA_CAPTURE_BACKEND", "auto").strip().lower()
+
+    if backend == "raspistill":
+        return _capture_jpeg_via_raspistill()
+
+    if backend == "picamera2":
+        return _capture_jpeg_via_picamera2()
+
+    # auto — try Picamera2 (libcamera) first, fall back when legacy raspistill still owns the CSI stack
+    try:
+        return _capture_jpeg_via_picamera2()
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            return _capture_jpeg_via_raspistill()
+        except Exception as rs_err:
+            raise RuntimeError(f"picamera2: {e!s}; raspistill: {rs_err!s}") from rs_err
 
 
 # --- Optional: ventilate via Arduino (USB or BT bridge) — TERRA_USE_ARDUINO_SERVO, Servo on D6 in sketch ---
