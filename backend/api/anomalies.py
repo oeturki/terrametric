@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from services.anomaly_runtime import get_anomaly_service, reset_anomaly_state_for_plant, run_detection_and_persist
 from services.telemetry_service import query_telemetry_for_plant_since
-from services.anomaly_service import AnomalyDetectionService, AnomalyEvent
+from services.anomaly_service import AnomalyDetectionService, anomaly_detection_constructor_kwargs, AnomalyEvent
 from services.detectors.base import Reading
 from services.plant_service import get_plant_for_owner
 from simulation.simulator import (
@@ -209,15 +209,7 @@ def simulate_anomalies(
     if not settings.ALLOW_ANOMALY_SIMULATE:
         raise HTTPException(status_code=403, detail="Synthetic anomaly simulate is disabled (ALLOW_ANOMALY_SIMULATE).")
     lab_key = 99
-    svc = AnomalyDetectionService(
-        drift_window=settings.DRIFT_WINDOW_SIZE,
-        noise_window=settings.NOISE_WINDOW_SIZE,
-        noise_warn_mult=settings.NOISE_MULTIPLIER_WARNING,
-        noise_crit_mult=settings.NOISE_MULTIPLIER_CRITICAL,
-        dropout_multiplier=settings.DROPOUT_MULTIPLIER,
-        dropout_baseline_count=settings.DROPOUT_BASELINE_READINGS,
-        extended_detectors=True,
-    )
+    svc = AnomalyDetectionService(**anomaly_detection_constructor_kwargs(True))
     svc.reset(lab_key)
     seed = 42
     series = generate_stable_series(

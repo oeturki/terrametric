@@ -267,21 +267,42 @@ async function exportSamples() {
   downloadFile('terrametric-samples.csv', csv, 'text/csv');
 }
 
-// ── Gallery tabs ─────────────────────────────
+// ── Gallery sample selector ─────────────────────────────
 
 function buildGalleryTabs() {
-  const tabs = document.getElementById('galleryPlantTabs');
-  if (!tabs) return;
-  tabs.innerHTML = trays.map((t, i) => `
-    <div class="plant-tab ${i === selectedGalleryPlant ? 'active' : ''}" onclick="setGalleryPlant(${i})">
-      ${t.name || 'Sample ' + (i + 1)}
-      <span style="opacity:.55;font-size:9px;">#${i + 1}</span>
-    </div>`).join('');
+  const sel = document.getElementById('gallerySampleSelect');
+  if (!sel) return;
+  if (!trays.length) {
+    sel.innerHTML = '<option value="">No samples</option>';
+    return;
+  }
+  const esc = function (s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  };
+  if (selectedGalleryPlant >= trays.length) selectedGalleryPlant = trays.length - 1;
+  if (selectedGalleryPlant < 0) selectedGalleryPlant = 0;
+  sel.innerHTML = trays.map(function (t, i) {
+    var label = (t.name || 'Sample ' + (i + 1)) + ' — ' + (t.qr || 'no QR');
+    return '<option value="' + i + '">' + esc(label) + '</option>';
+  }).join('');
+  sel.value = String(selectedGalleryPlant);
 }
 
 function setGalleryPlant(i) {
-  selectedGalleryPlant = i;
-  buildGalleryTabs();
+  selectedGalleryPlant = typeof i === 'number' ? i : parseInt(i, 10) || 0;
+  if (selectedGalleryPlant >= trays.length && trays.length) {
+    selectedGalleryPlant = trays.length - 1;
+  }
+  if (selectedGalleryPlant < 0) selectedGalleryPlant = 0;
+  const sel = document.getElementById('gallerySampleSelect');
+  if (sel && trays.length) sel.value = String(selectedGalleryPlant);
+  buildGalleryTimeline();
+}
+
+function onGallerySampleSelectChange(sel) {
+  selectedGalleryPlant = sel ? (parseInt(sel.value, 10) || 0) : 0;
   buildGalleryTimeline();
 }
 
@@ -342,8 +363,9 @@ function buildGalleryTimeline() {
       <div class="day-grid">
         ${dayPhotos.map(p => {
           const t = new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          const imgContent = p.image_url
-            ? `<img src="${p.image_url}" style="width:100%;height:100%;object-fit:cover;" alt="Plant photo">`
+          const thumbUrl = (p._blobUrl && String(p._blobUrl)) ? p._blobUrl : '';
+          const imgContent = thumbUrl
+            ? `<img src="${thumbUrl}" style="width:100%;height:100%;object-fit:cover;" alt="Plant photo">`
             : `<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:40px;background:#e8f5e8;">🌿</div>`;
           return `
             <div class="photo-card">

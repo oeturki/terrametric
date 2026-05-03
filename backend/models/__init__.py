@@ -13,3 +13,4 @@ from models.reading import Telemetry  # noqa: F401
 from models.telemetry_ml_prediction import TelemetryMlPrediction  # noqa: F401
 from models.audit_log import AuditLog  # noqa: F401
 from models.alert import Alert  # noqa: F401
+from models.plant_capture import PlantCapture  # noqa: F401

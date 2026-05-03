@@ -44,10 +44,15 @@ class Settings(BaseSettings):
     CONTROL_TOLERANCE_HUMIDITY: float = 5.0
 
     # Anomaly detection -- drift
+    # Balanced preset: OLS slope on a prior-only window; skip wobbly fits (low R²); optional MK gate below.
     DRIFT_WINDOW_SIZE: int = 30
     DRIFT_SLOPE_THRESHOLD_TEMP: float = 0.05
     DRIFT_SLOPE_THRESHOLD_HUMIDITY: float = 0.5
     DRIFT_SLOPE_THRESHOLD_LIGHT: float = 3.0
+    DRIFT_MIN_R_SQUARED: float = 0.12
+    # When True, suppress drift if Kendall tau trend p-value is above threshold (non-monotonic / wobbly).
+    FR10_DRIFT_MK_SUPPRESS: bool = False
+    FR10_DRIFT_MK_P_MAX: float = 0.15
 
     # Anomaly detection -- noise
     NOISE_WINDOW_SIZE: int = 10
@@ -62,6 +67,30 @@ class Settings(BaseSettings):
     DROPOUT_BASELINE_READINGS: int = 20
     DROPOUT_SEVERITY_WARNING: int = 5
     DROPOUT_SEVERITY_CRITICAL: int = 15
+
+    # Dead / unreadable monitored channel while other env fields still post (MISSING_DATA).
+    MISSING_CHANNEL_ENABLED: bool = True
+    MISSING_CHANNEL_CONSEC_WARNING: int = 4
+    MISSING_CHANNEL_CONSEC_CRITICAL: int = 8
+    # Require at least one other monitored env var non-null on the same ingest row before counting.
+    MISSING_CHANNEL_REQUIRE_PEER_SIGNAL: bool = True
+
+    # Anomaly detection -- spike (z vs prior-only window; std floor from baseline_noise / denom)
+    SPIKE_WARNING_Z: float = 4.0
+    SPIKE_CRITICAL_Z: float = 6.0
+    SPIKE_STD_FLOOR_DENOM: float = 4.0
+    SPIKE_MIN_PRIOR: int = 5
+    # Absolute deviation from prior mean must exceed this (same units as sensor) to count as spike at WARNING+.
+    SPIKE_MIN_ABS_DELTA: float = 0.0
+    SPIKE_USE_MAD: bool = False
+
+    # Optional core detector: light residual CUSUM (LEVEL_SHIFT). Off by default; omitted when extended_detectors
+    # is True to avoid overlapping with the full CUSUM detector in the synthetic lab.
+    FR10_CORE_LIGHT_RESIDUAL_CUSUM: bool = False
+    RESIDUAL_CUSUM_K: float = 0.35
+    RESIDUAL_CUSUM_H: float = 4.0
+    RESIDUAL_CUSUM_WINDOW: int = 15
+    RESIDUAL_CUSUM_MIN_PRIOR: int = 8
 
     # When True, enable correlation, CUSUM (level shift), EWMA, and seasonal detectors in addition
     # to the default core set (dropout, spike, drift, noise). Synthetic lab always runs extended rules.
@@ -84,6 +113,12 @@ class Settings(BaseSettings):
     # Proxy to the Pi hardware agent (see `pi/hardware_agent.py`). Set on the *laptop* Uvicorn host only.
     HARDWARE_PI_BASE: str = ""  # e.g. http://10.4.247.246:8765 when hardware_agent runs on the Pi LAN IP
     HARDWARE_PI_KEY: str = ""  # same as DEVICE_KEY on the Pi; never expose to the browser
+
+    # When Pi is configured, turn ventilation on/off from desired band during active recording sessions.
+    AUTO_VENTILATION_ENABLED: bool = True
+
+    # Stored Pi camera JPEGs (path on the API host; not in git by default).
+    CAPTURE_STORAGE_DIR: str = ""
 
     # Demo: POST /api/auth/register-admin requires this body field ``admin_secret`` when set
     ADMIN_REGISTRATION_SECRET: str = ""

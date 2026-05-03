@@ -89,7 +89,11 @@ class NoiseDetector(BaseDetector):
         if buffer.size(variable) < self._window_size:
             return None
 
-        values = buffer.get_values(variable)[-self._window_size:]
+        all_v = buffer.get_values(variable)
+        if buffer.size(variable) >= self._window_size + 1:
+            values = all_v[-(self._window_size + 1) : -1]
+        else:
+            values = all_v[-self._window_size :]
 
         # Strip consecutive duplicate values caused by DHT11's slow update rate.
         # e.g. [22, 22, 22, 23, 23, 22] becomes [22, 23, 22]
@@ -134,5 +138,6 @@ class NoiseDetector(BaseDetector):
                 "ratio": round(ratio, 2),
                 "window_size": self._window_size,
                 "unique_values_in_window": len(deduped),
+                "prior_only": buffer.size(variable) >= self._window_size + 1,
             },
         )

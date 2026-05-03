@@ -34,8 +34,10 @@ Orchestrator: **`backend/services/anomaly_service.py`**.
 
 | Set | Detectors | When active |
 |-----|-----------|-------------|
-| **Core (default)** | Dropout → Spike → Drift → Noise | Live ingest, reprocess, and unit tests (`extended_detectors=False`) |
-| **Extended** | + Correlation, CUSUM (level shift), EWMA breach, Seasonal | `FR10_EXTENDED_DETECTORS=true` in **`backend/.env`** (`backend/config.py`); **always** enabled for **`POST /api/anomalies/simulate`** (lab uses an ephemeral full service instance) |
+| **Core (default)** | Dropout → **MissingChannel** → Spike → Drift → (optional light residual CUSUM) → Noise | Live ingest when `extended_detectors` is False; **`anomaly_detection_constructor_kwargs()`** in **`anomaly_service.py`** wires thresholds from **`backend/config.py`**. |
+| **Extended** | + Correlation, CUSUM (level shift), EWMA breach, Seasonal | `FR10_EXTENDED_DETECTORS=true`; **always** enabled for **`POST /api/anomalies/simulate`** (full service instance). |
+
+**Light residual CUSUM (optional core)** — emits **`LEVEL_SHIFT`** with `detail.reason = "core_light_residual_cusum"`. Controlled by **`FR10_CORE_LIGHT_RESIDUAL_CUSUM`**. It is **not** appended when **`extended_detectors`** is True, so the synthetic lab does not double-stack next to **`CUSUMDetector`**.
 
 **Why split:** Core detectors have straightforward hypotheses (missing data, outliers, drifting mean, inflated variance). Correlation / CUSUM / EWMA / seasonal lean on sampling regularity or structure; keeping them optional supports a narrower **false-positive evaluation** baseline on live hardware before turning extended rules on.
 
@@ -46,7 +48,7 @@ Orchestrator: **`backend/services/anomaly_service.py`**.
 | Endpoint | Role |
 |---------|------|
 | `GET /api/anomalies?hours=&plant_id=` | Aggregated counts + events for charts / table |
-| `POST /api/anomalies/simulate` | Synthetic lab (**not persisted**); all detectors incl. extended |
+| `POST /api/anomalies/simulate` | Synthetic lab (**not persisted**); extended rules + simulate-specific service build |
 | `POST /api/anomalies/reprocess` | Delete events in window, replay telemetry through **live** singleton (core or extended per env) |
 | `DELETE /api/anomalies/clear` | Resets singleton lab session key (`99`) only; does not wipe DB |
 
@@ -63,53 +65,89 @@ PIR / distance are ignored by FR10 orchestration (non-continuous for these rules
 
 ---
 
-## 6. Algorithm sketch (core)
+## 6. Algorithm sketch (core) — formulas
 
-Thresholds largely mirror **`backend/config.py`** and **`services/detectors/base.py`** / `SensorProfile`.
+Thresholds mirror **`backend/config.py`**, **`SensorProfile`** in **`services/detectors/base.py`**, and constructor kwargs assembled by **`anomaly_detection_constructor_kwargs()`**.
+
+Notation: \(x\) = current reading per variable (after buffering); priors exclude \(x\) when the buffer holds `window + 1` samples.
 
 ### 6.1 Dropout
 
-Gap between timestamps vs learned median inter-arrival (first N gaps). Severity bands use `DROPOUT_MULTIPLIER` and configured warning/critical thresholds.
+Intervals \(g\) between timestamps; learn median baseline \(\tilde{t}\) from the first **`DROPOUT_BASELINE_READINGS`** gaps. Flag if \(\frac{g}{\tilde{t}} > \texttt{DROPOUT\_MULTIPLIER}\).
 
-### 6.2 Spike
+Severity tiers use **`DROPOUT_SEVERITY_WARNING`** and **`DROPOUT_SEVERITY_CRITICAL`** as multiples of \(\tilde{t}\). Tune these together with **`SAMPLING_INTERVAL_SEC`** / Pi bridge cadence documented in **`docs/pi-setup.md`** so transient Wi-Fi pauses classify as WARNING while long outages are CRITICAL.
 
-Z-score style outlier vs short buffer + physical bound checks (`SpikeDetector`).
+### 6.2 Missing dead channel (`MissingChannelDetector`)
 
-### 6.3 Drift
+Consecutive **`null`** values on one monitored environmental field while ingest is otherwise healthy ⇒ **`MISSING_DATA`**.
 
-Least-squares slope on a sliding window of readings per variable vs per-variable slope thresholds (`DRIFT_WINDOW_SIZE`, `DRIFT_SLOPE_THRESHOLD_*`).
+Let **`MISSING_CHANNEL_CONSEC_WARNING`** = \(N_w\) and **`MISSING_CHANNEL_CONSEC_CRITICAL`** = \(N_c\) (\(N_c > N_w\)). For each ingest row:
 
-### 6.4 Noise
+- Per variable, increment a streak whenever the payload has `null` for that variable.
+- Optional **`MISSING_CHANNEL_REQUIRE_PEER_SIGNAL` (default true):** only count streaks if **at least one other** monitored env field (`temperature`, `humidity`, `light`) is non-null **on that same row**—so dropout / unplugged-bus rows that are globally empty do **not** look like “one probe died while the rest streamed.” Single-sensor rigs can flip this flag to `false`.
 
-Rolling standard deviation vs baseline noise in `SensorProfile`, compared at **`NOISE_MULTIPLIER_WARNING`** / **`NOISE_MULTIPLIER_CRITICAL`** after **`NOISE_WINDOW_SIZE`** readings.
+Emit **WARNING** when the streak reaches \(N_w\); emit **CRITICAL** once when it reaches \(N_c\) (without spamming on every subsequent row until the channel recovers to non-null).
 
-### 6.5 Extended detectors (summary)
+Disable entirely with **`MISSING_CHANNEL_ENABLED=false`**.
+
+### 6.3 Spike (`SpikeDetector`)
+
+1. Hard bounds (`HARD_BOUNDS` dict) ⇒ immediate CRITICAL.
+2. Let \(\mu\) = mean(priors), effective scale \(\sigma_{\text{eff}} = \max(\hat{\sigma}, \sigma_{\text{floor}})\) where \(\sigma_{\text{floor}}=\texttt{baseline\_noise}/\texttt{SPIKE\_STD\_FLOOR\_DENOM}\), and \(\hat{\sigma}\) is either **`np.std(priors)`** or **MAD×1.4826** when **`SPIKE_USE_MAD=true`**.
+3. Spike if \(\frac{|x-\mu|}{\sigma_{\text{eff}}} > \texttt{SPIKE\_WARNING\_Z}\) (**WARNING** vs **CRITICAL** at **`SPIKE_CRITICAL_Z`**).
+
+Optional **`SPIKE_MIN_ABS_DELTA`** requires \(|x-\mu|\) exceed an absolute deviation (same units as the sensor)—useful alongside very small floors where only relative tests are too sharp.
+
+Defaults target a **balanced** operating point: flatten tiny-σ hallucinations via the floor yet keep plausible single-sample faults visible.
+
+### 6.4 Drift (`DriftDetector`)
+
+OLS slope on **`DRIFT_WINDOW_SIZE`** points; when the buffer is longer than one extra sample, regression uses **`values[-(window+1):-1]`** (prior-only), decoupling the current point.
+
+Let \(y_i\) be the windowed series, slope \(\beta\) from regressing \(y\) on \(\{0\ldots N-1\}\). Persist only if \(\lvert \beta\rvert > \texttt{sensor.drift_slope_threshold}\).
+
+**\(R^2\) veto:** Reject drift if **`DRIFT_MIN_R_SQUARED`** is not achieved (parsimonious guards against jittery-but-flat overlays).
+
+**Kendall (Mann–Kendall-style gate):** If **`FR10_DRIFT_MK_SUPPRESS=true`**, Kendall’s \(\tau\) (via **`scipy.stats.kendalltau`**) \(p\text{-value} >\) **`FR10_DRIFT_MK_P_MAX`** suppresses the drift (non-monotonic / oscillatory façade that can fake OLS slope).
+
+### 6.5 Noise (`NoiseDetector`)
+
+Rolling standard deviation \(\sigma_{\text{win}}\) on up to **`NOISE_WINDOW_SIZE`** **prior** samples (excluding the freshest point when extra history exists), after **stripping consecutive duplicate** DHT11 repeats inside the slice.
+
+Trigger if \(\sigma_{\text{win}}/\texttt{baseline_noise}>\texttt{NOISE\_MULTIPLIER\_WARNING}\) (**WARNING**) or \(>\texttt{NOISE\_MULTIPLIER\_CRITICAL}\).
+
+### 6.6 Optional core residual CUSUM (`LightResidualCUSUMDetector`)
+
+Per-variable residuals \(z_t = \dfrac{x_t-\text{median}(\text{priors}_t)}{\texttt{baseline\_noise}}\).
+
+Tabular symmetric CUSUM: \(S^+_{t}=\max(0,S^+_{t-1}+(z_t-\texttt{RESIDUAL\_CUSUM\_K}))\); \(S^-\) analogously downward. Threshold **`RESIDUAL_CUSUM_H`**. **`detail.reason = "core_light_residual_cusum"`** distinguishes synthetic lab’s full **`CUSUMDetector`** when both are inactive together.
+
+### 6.7 Extended detectors (summary)
 
 - **Correlation:** Rolling Pearson consistency between temperature and humidity streams; cooldowns reduce duplicate alerts.
-- **CUSUM / level shift:** Cumulative-sum style mean shift detection on profile-scaled residuals.
-- **EWMA:** Smoothed mean vs control limits; breach events with cooldown.
+- **CUSUM / level shift:** Full profile-scaled residuals with reset-on-fire semantics (see **`detectors/cusum.py`**).
+- **EWMA:** Control-chart limits on EWMA smoothed mean; overlaps conceptually with sustained shifts—enable only when sampling is regular (see **`detectors/ewma.py`**).
 - **Seasonal:** Hour-of-day residual logic on light (assumes enough samples per bucket).
-
-Implementations: **`backend/services/detectors/`**.
 
 ---
 
-## 7. Evaluation & false-positive study (coursework-ready)
+## 7. Evaluation (pytest-first)
 
-These detectors are **not** probabilistic classifiers with an intrinsic accuracy metric. Recommended reporting:
+Automated proof lives in **`tests/test_anomaly.py`** and **`tests/test_simulation.py`**.
 
-1. **Define negatives:** stable windows (Arduino bench, chamber steady state, or `stable` / low-injection synthetic series).
-2. **Define positives:** injected faults (`POST /api/anomalies/simulate` scenarios — tabulate expected detector families), or scripted injects with known onset times on bench data.
-3. **Metrics:**
-   - **Events per hour** on negative windows (“false positives” if no intentional fault).
-   - **Time-to-detection** or **recall proxy** on positive segments (manual segment labels on a timeline is enough at coursework scale).
-   - Optionally **precision** if injections are sparse and countable.
-4. **Threshold sweep:** vary `NOISE_MULTIPLIER_*`, drift slope multiples, dropout multiplier (via env / code) and log changes in FP rate vs missed injections.
-5. **Synthetic vs live:**
-   - **Synthetic lab** exercises the **full** orchestrator incl. extended rules; results are **not** written to DB.
-   - **Live/reprocess** use the deployed detector set (core unless `FR10_EXTENDED_DETECTORS`), so summaries between lab and persisted events are **not** identical unless extended is enabled on the server.
+```text
+pytest tests/test_anomaly.py tests/test_simulation.py -v
+```
 
-**SQL-shaped idea:** for a stable evaluation window with known `plant_id`, count rows in `anomaly_detection_events`, group by hour or by `anomaly_type`, and join to telemetry bins for context (adapt to your dialect).
+**What is covered:**
+
+- **Steady / negative panels:** Stable rolling windows ⇒ no spike, drift R² veto on wobbly OLS ramps, Kendall suppression on oscillatory surrogates, dropout baselines respecting configured severity ratios.
+- **Injections:** Oscillatory noise ⇒ noise detector; ramps ⇒ drift; gaps ⇒ dropout; single extreme points ⇒ spikes; sustained offsets ⇒ optional light residual CUSUM (`LEVEL_SHIFT`).
+- **Consecutive nulls** on one channel with peers still posting ⇒ **`MISSING_DATA`** via **`MissingChannelDetector`** (see §6.2).
+
+Manual **FP studies** (`GET /api/anomalies`) remain optional appendix material; keep lab vs live distinctions (simulate always runs extended; ingest obeys env).
+
+Secondary idea (SQL): aggregate `anomaly_detection_events` by hour and `anomaly_type` joined to telemetry bins for deployment reports.
 
 ---
 
@@ -163,8 +201,47 @@ sequenceDiagram
 |----------|-----------|
 | Core vs extended split | Stable baseline for reproducible coursework evaluation; extended available when assumptions hold |
 | Spike + dropout before drift/noise ordering | Gap and single-reading faults surface before slower windows fill |
-| Readings-based windows | Tolerates slightly irregular sampling (dropout still uses wall-clock gaps) |
+| Prior-only windows (spike, drift, noise when possible) | Avoids self-influence of the candidate reading in baselines and regression |
+| Balanced defaults in `config.py` | Floor on spike scale, R² drift veto, noise on priors—target plausible warnings while trimming obvious FPs on flat traces |
+| Light residual CUSUM behind flag | Change-point–style accumulation without forcing extended lab assumptions on every deployment |
+| `anomaly_detection_constructor_kwargs()` | Single mapping from `.env` → service constructor (runtime + simulate stay aligned) |
+| Missing-channel detector after dropout | Rows still arrive while one probe fails ⇒ **`MISSING_DATA`** before spike/drift on that lane |
+
+## 12. Environment reference (`.env` / `config.py`)
+
+| Variable | Role |
+|----------|------|
+| `DRIFT_WINDOW_SIZE` | OLS window length |
+| `DRIFT_SLOPE_THRESHOLD_TEMP` / `_HUMIDITY` / `_LIGHT` | Per-variable slope caps (also in `SensorProfile`) |
+| `DRIFT_MIN_R_SQUARED` | Minimum \(R^2\) for drift to fire |
+| `FR10_DRIFT_MK_SUPPRESS` | Enable Kendall \(p\)-value suppression |
+| `FR10_DRIFT_MK_P_MAX` | Suppress drift if \(p >\) this value |
+| `NOISE_WINDOW_SIZE` | Rolling length for noise std |
+| `NOISE_MULTIPLIER_WARNING` / `NOISE_MULTIPLIER_CRITICAL` | Ratio vs `SensorProfile.baseline_noise` |
+| `DROPOUT_MULTIPLIER` | Minimum gap ratio vs learned median to flag |
+| `DROPOUT_BASELINE_READINGS` | Gaps collected before detection |
+| `DROPOUT_SEVERITY_WARNING` / `DROPOUT_SEVERITY_CRITICAL` | Gap ratio bands for INFO/WARNING/CRITICAL |
+| `SPIKE_WARNING_Z` / `SPIKE_CRITICAL_Z` | Robust z thresholds |
+| `SPIKE_STD_FLOOR_DENOM` | Denominator \(\sigma_{\text{floor}}=\texttt{baseline}/\texttt{SPIKE\_STD\_FLOOR\_DENOM}\) |
+| `SPIKE_MIN_PRIOR` | Prior count before spike stats |
+| `SPIKE_MIN_ABS_DELTA` | Optional absolute deviation gate (0 disables) |
+| `SPIKE_USE_MAD` | Robust scale toggle |
+| `FR10_CORE_LIGHT_RESIDUAL_CUSUM` | Enable optional **`LightResidualCUSUMDetector`** |
+| `RESIDUAL_CUSUM_K` / `RESIDUAL_CUSUM_H` / `RESIDUAL_CUSUM_WINDOW` / `RESIDUAL_CUSUM_MIN_PRIOR` | CUSUM-lite hyper-parameters |
+| `MISSING_CHANNEL_ENABLED` | Enable dead-channel detection |
+| `MISSING_CHANNEL_CONSEC_WARNING` | Consecutive nulls before WARNING |
+| `MISSING_CHANNEL_CONSEC_CRITICAL` | Consecutive nulls before CRITICAL |
+| `MISSING_CHANNEL_REQUIRE_PEER_SIGNAL` | Require another env field non-null on the same row before counting |
+| `FR10_EXTENDED_DETECTORS` | Correlation + full CUSUM + EWMA + seasonal |
+
+Comments in **`backend/terrametric-laptop.env.example`** list the most common anomaly toggles alongside hardware keys.
 
 ---
 
-Document version aligns with codebase as of TerraMetric coursework tree; thresholds live in **`backend/config.py`** and **`SENSOR_PROFILES`**.
+## 13. Reprocess after tuning
+
+Changing thresholds or detector flags **does not** rewrite existing `anomaly_detection_events` rows automatically. After deployment, run **`POST /api/anomalies/reprocess?plant_id=…&hours=…`** so stored telemetry is replayed through the **new** rules. Expect event counts to shift relative to legacy snapshots used in earlier coursework write-ups.
+
+---
+
+Document version aligns with TerraMetric coursework tree; authoritative defaults live in **`backend/config.py`** and **`SENSOR_PROFILES`**.

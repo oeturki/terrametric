@@ -666,6 +666,9 @@ async function homeHardwareCapture(ev) {
     setTimeout(function () {
       try { URL.revokeObjectURL(u); } catch (_) { /* ignore */ }
     }, 120000);
+    try {
+      await fetchGallery();
+    } catch (_) { /* noop */ }
   } catch (e) {
     const m = e && e.message ? String(e.message) : String(e);
     fireAlert('danger', 'Camera', m, 8000);
@@ -708,16 +711,44 @@ async function homeHardwareVentilation(ev) {
 
 async function fetchGallery() {
   try {
+    if (typeof galleryPhotos !== 'undefined' && galleryPhotos) {
+      Object.keys(galleryPhotos).forEach(function (key) {
+        (galleryPhotos[key] || []).forEach(function (p) {
+          if (p && p._blobUrl) {
+            try { URL.revokeObjectURL(p._blobUrl); } catch (_) { /* noop */ }
+            p._blobUrl = null;
+          }
+        });
+      });
+    }
+
     const data = await apiFetch(CONFIG.ENDPOINTS.camera);
     const photos = Array.isArray(data) ? data : data.images || [];
     galleryPhotos = {};
-    photos.forEach(p => {
+    photos.forEach(function (p) {
       const key = p.sample_qr || 'unknown';
       if (!galleryPhotos[key]) galleryPhotos[key] = [];
       galleryPhotos[key].push(p);
     });
-    buildGalleryTimeline();
-  } catch {
-    buildGalleryTimeline();
+
+    for (const qr of Object.keys(galleryPhotos || {})) {
+      const arr = galleryPhotos[qr] || [];
+      for (let j = 0; j < arr.length; j++) {
+        const ph = arr[j];
+        const path = ph.image_url || '';
+        if (!path || !ph.id) continue;
+        var u = API_BASE + (path.indexOf('/') === 0 ? path : '/' + path);
+        try {
+          const res = await authFetch(u);
+          if (!res.ok) continue;
+          const blob = await res.blob();
+          ph._blobUrl = URL.createObjectURL(blob);
+        } catch (_) { /* skip thumbnail */ }
+      }
+    }
+
+    if (typeof buildGalleryTimeline === 'function') buildGalleryTimeline();
+  } catch (_) {
+    if (typeof buildGalleryTimeline === 'function') buildGalleryTimeline();
   }
 }

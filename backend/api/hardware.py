@@ -5,16 +5,28 @@ Proxy authenticated UI requests to the Raspberry Pi hardware agent
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from config import settings
+from database import get_db
 from deps.auth import get_current_user
+from models.reading import Telemetry
 from models.user import User
+from services import auto_ventilation_service as auto_vent
+from services import camera_service as cam_svc
+from services.pi_camera_client import fetch_pi_camera_jpeg
+from services.pi_ventilation_client import post_ventilation_json
+from services.recording_session_service import get_open_recording_session_for_user
 
 router = APIRouter()
+_log = logging.getLogger(__name__)
 
 
 def _pi_headers() -> dict[str, str]:
@@ -70,22 +82,52 @@ class VentilationBody(BaseModel):
 
 
 @router.post("/capture")
-async def hardware_capture(_: User = Depends(get_current_user)):
-    base = _require_pi_config()
-    url = f"{base}/camera/capture"
+async def hardware_capture(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _require_pi_config()
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.post(url, headers=_pi_headers())
-    except httpx.ConnectError as e:
-        raise HTTPException(status_code=502, detail=f"Cannot reach Pi at {base}: {e!s}") from e
-    except httpx.TimeoutException as e:
-        raise HTTPException(status_code=504, detail="Pi camera capture timed out") from e
+        jpeg = await asyncio.to_thread(fetch_pi_camera_jpeg, timeout_sec=60.0)
+    except RuntimeError as e:
+        msg = str(e)
+        low = msg.lower()
+        if "not configured" in low:
+            raise HTTPException(status_code=503, detail=msg) from e
+        if "timed out" in low or "timeout" in low:
+            raise HTTPException(status_code=504, detail=msg) from e
+        raise HTTPException(status_code=502, detail=msg) from e
+    sess = get_open_recording_session_for_user(db, user.id)
+    if sess is not None and jpeg:
+        tr = (
+            db.query(Telemetry)
+            .filter(Telemetry.plant_id == sess.plant_id)
+            .order_by(Telemetry.timestamp.desc(), Telemetry.id.desc())
+            .first()
+        )
+        h = None
+        tid = None
+        if tr:
+            tid = tr.id
+            if tr.plant_height is not None:
+                h = float(tr.plant_height)
+            elif tr.distance is not None:
+                h = float(tr.distance)
+        try:
+            cam_svc.save_capture(
+                db,
+                plant_id=sess.plant_id,
+                session_id=sess.id,
+                telemetry_id=tid,
+                trigger="manual",
+                detail=None,
+                jpeg_bytes=jpeg,
+                height_cm=h,
+            )
+        except Exception:
+            _log.exception("persist manual camera capture failed")
 
-    if r.status_code != 200:
-        _raise_unless_pi_ok(r)
-    ct = r.headers.get("content-type", "image/jpeg")
-    return Response(content=r.content, media_type=ct)
-
+    return Response(content=jpeg, media_type="image/jpeg")
 
 @router.post("/ventilation")
 async def hardware_ventilation(
@@ -93,11 +135,9 @@ async def hardware_ventilation(
     _: User = Depends(get_current_user),
 ):
     base = _require_pi_config()
-    url = f"{base}/ventilation"
     payload = body.model_dump(exclude_none=True)
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.post(url, json=payload, headers=_pi_headers())
+        r = await asyncio.to_thread(post_ventilation_json, payload)
     except httpx.ConnectError as e:
         raise HTTPException(status_code=502, detail=f"Cannot reach Pi at {base}: {e!s}") from e
     except httpx.TimeoutException as e:
@@ -105,4 +145,7 @@ async def hardware_ventilation(
 
     if r.status_code != 200:
         _raise_unless_pi_ok(r)
+    # Keep auto-vent state aligned with intentional on/off clicks (Home toggles send explicit ``on``).
+    if body.on is not None:
+        auto_vent.notify_manual_vent_success(turn_on=bool(body.on))
     return r.json()

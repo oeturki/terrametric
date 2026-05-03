@@ -1,8 +1,10 @@
 """
 Drift Detector -- detects gradual sensor calibration loss.
 
-Uses linear regression (least-squares) on a sliding window of readings.
-If the slope exceeds the sensor's threshold, something is drifting.
+OLS slope on a sliding window; when enough history exists, the window excludes the
+current point so a single aberrant reading does not dominate the slope.
+Optional R² veto screens wobbly (poor-fit) segments; optional Kendall-tau suppression
+gates non-monotonic windows (Mann–Kendall-style trend screening).
 """
 
 from __future__ import annotations
@@ -18,28 +20,25 @@ from .rolling_buffer import RollingBuffer
 
 class DriftDetector(BaseDetector):
     """
-    Detects gradual sensor calibration loss using linear regression.
+    Least-squares slope on ``window_size`` readings (prior-only when possible).
 
-    HOW IT WORKS:
-    Takes the last N readings (the "window") and fits a straight line through them
-    using least-squares regression (numpy.polyfit).  The slope of that line tells us
-    how fast the sensor value is changing per reading.
-
-    If |slope| > the sensor's drift_slope_threshold, something is wrong -- the sensor
-    is slowly drifting away from its true value.
-
-    MATH:
-        slope = (N * Sigma(x*y) - Sigma(x) * Sigma(y)) / (N * Sigma(x^2) - (Sigma(x))^2)
-        where x = reading index [0, 1, 2, ...], y = sensor value
-
-    SEVERITY:
-        WARNING  if slope is 1-2x the threshold
-        CRITICAL if slope exceeds 2x the threshold
+    Severity: WARNING if ratio in (1, 2]; CRITICAL if ratio > 2.
     """
 
-    def __init__(self, profiles: dict[str, SensorProfile], window_size: int):
+    def __init__(
+        self,
+        profiles: dict[str, SensorProfile],
+        window_size: int,
+        *,
+        min_r_squared: float = 0.0,
+        use_mk_suppression: bool = False,
+        mk_p_max: float = 0.15,
+    ):
         self._profiles = profiles
-        self._window_size = window_size  # how many readings to fit the line through
+        self._window_size = window_size
+        self._min_r_squared = min_r_squared
+        self._use_mk_suppression = use_mk_suppression
+        self._mk_p_max = mk_p_max
 
     def detect_reading(
         self,
@@ -47,11 +46,6 @@ class DriftDetector(BaseDetector):
         buffer: object,
         session_id: int,
     ) -> list[AnomalyEvent]:
-        """
-        Check all monitored variables in the buffer for drift.
-        Called by the orchestrator once per reading, after the reading
-        has been added to the buffer.
-        """
         events = []
         if not isinstance(buffer, RollingBuffer):
             return events
@@ -68,8 +62,15 @@ class DriftDetector(BaseDetector):
         variable: str,
         session_id: int,
     ) -> Optional[AnomalyEvent]:
-        """Public single-variable detection. Useful for unit tests and direct calls."""
         return self._detect_variable(buffer, variable, session_id, self._profiles[variable])
+
+    def _window_values(self, buffer: RollingBuffer, variable: str) -> Optional[np.ndarray]:
+        all_v = buffer.get_values(variable)
+        if len(all_v) < self._window_size:
+            return None
+        if len(all_v) >= self._window_size + 1:
+            return np.asarray(all_v[-(self._window_size + 1) : -1], dtype=float)
+        return np.asarray(all_v[-self._window_size :], dtype=float)
 
     def _detect_variable(
         self,
@@ -78,26 +79,34 @@ class DriftDetector(BaseDetector):
         session_id: int,
         profile: SensorProfile,
     ) -> Optional[AnomalyEvent]:
-        """Run drift detection on one variable."""
-        # Need a full window before we can detect anything
-        if buffer.size(variable) < self._window_size:
+        values = self._window_values(buffer, variable)
+        if values is None or values.size < 2:
             return None
 
-        # Grab the most recent window_size values
-        values = buffer.get_values(variable)[-self._window_size:]
-
-        # x-axis = [0, 1, 2, ..., N-1], y-axis = sensor readings
         x = np.arange(len(values), dtype=float)
+        slope, intercept = np.polyfit(x, values, 1)
 
-        # polyfit returns [slope, intercept] for a degree-1 polynomial
-        slope, _ = np.polyfit(x, values, 1)
-        abs_slope = abs(slope)
+        mean_y = float(np.mean(values))
+        ss_tot = float(np.sum((values - mean_y) ** 2))
+        residuals = values - (slope * x + intercept)
+        ss_res = float(np.sum(residuals ** 2))
+        r_squared = float("nan") if ss_tot <= 1e-18 else 1.0 - ss_res / ss_tot
 
-        # Slope is within normal range -- no drift
+        if not np.isnan(r_squared) and r_squared < self._min_r_squared:
+            return None
+
+        abs_slope = abs(float(slope))
         if abs_slope <= profile.drift_slope_threshold:
             return None
 
-        # How many times over the threshold (used for severity)
+        if self._use_mk_suppression:
+            from scipy.stats import kendalltau
+
+            tau, pvalue = kendalltau(np.arange(len(values), dtype=float), values)
+            pvalue_f = float(pvalue) if pvalue is not None and not np.isnan(pvalue) else 1.0
+            if pvalue_f > self._mk_p_max:
+                return None
+
         ratio = abs_slope / profile.drift_slope_threshold
         severity = AlertSeverity.CRITICAL if ratio > 2.0 else AlertSeverity.WARNING
         direction = "increasing" if slope > 0 else "decreasing"
@@ -116,7 +125,9 @@ class DriftDetector(BaseDetector):
             detail={
                 "slope": round(float(slope), 6),
                 "threshold": profile.drift_slope_threshold,
-                "window_size": self._window_size,
+                "window_size": int(values.size),
                 "ratio": round(ratio, 2),
+                "r_squared": round(r_squared, 4) if not np.isnan(r_squared) else None,
+                "prior_only": buffer.size(variable) >= self._window_size + 1,
             },
         )

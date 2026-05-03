@@ -11,6 +11,7 @@ import sys
 import os
 from datetime import datetime, timedelta
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
@@ -20,10 +21,12 @@ from services.detectors.drift import DriftDetector
 from services.detectors.noise import NoiseDetector
 from services.detectors.dropout import DropoutDetector
 from services.detectors.spike import SpikeDetector
+from services.detectors.missing_channel import MissingChannelDetector
 from services.detectors.correlation import CorrelationDetector
 from services.detectors.cusum import CUSUMDetector
 from services.detectors.ewma import EWMADetector
 from services.detectors.seasonal import SeasonalDetector
+from services.detectors.residual_light_cusum import LightResidualCUSUMDetector
 from services.detectors.base import SensorProfile, AnomalyEvent, SENSOR_PROFILES, Reading
 from services.anomaly_service import AnomalyDetectionService
 from enums import AnomalyType, AlertSeverity
@@ -174,6 +177,47 @@ class TestDriftDetector:
         assert result is not None
         assert result.variable == "humidity"
 
+    def test_drift_suppressed_low_r_squared(self):
+        """Wobbly window: OLS |slope| exceeds threshold but R² is poor -> no event."""
+        detector = DriftDetector(
+            profiles=SENSOR_PROFILES,
+            window_size=12,
+            min_r_squared=0.12,
+            use_mk_suppression=False,
+        )
+        buf = RollingBuffer(max_size=30)
+        for i in range(12):
+            v = 22.0 + 0.12 * i + 4.0 * np.sin(0.8 * i)
+            buf.add("temperature", make_timestamp(i), float(v))
+        assert detector.detect(buf, "temperature", session_id=1) is None
+
+    def test_mk_suppress_blocks_non_monotonic_when_r2_disabled(self):
+        detector = DriftDetector(
+            profiles=SENSOR_PROFILES,
+            window_size=12,
+            min_r_squared=0.0,
+            use_mk_suppression=True,
+            mk_p_max=0.2,
+        )
+        buf = RollingBuffer(max_size=30)
+        for i in range(12):
+            v = 22.0 + 0.12 * i + 4.0 * np.sin(0.8 * i)
+            buf.add("temperature", make_timestamp(i), float(v))
+        assert detector.detect(buf, "temperature", session_id=1) is None
+
+    def test_mk_suppress_still_allows_linear_trend(self):
+        detector = DriftDetector(
+            profiles=SENSOR_PROFILES,
+            window_size=10,
+            min_r_squared=0.0,
+            use_mk_suppression=True,
+            mk_p_max=0.2,
+        )
+        buf = RollingBuffer(max_size=30)
+        for i in range(10):
+            buf.add("temperature", make_timestamp(i), 22.0 + i * 0.1)
+        assert detector.detect(buf, "temperature", session_id=1) is not None
+
 
 # ===========================================================================
 # NOISE DETECTOR TESTS
@@ -192,8 +236,10 @@ class TestNoiseDetector:
 
     def test_no_noise_normal_readings(self, detector):
         """Std dev ~0.17 (well below 3x baseline of 0.5) -> no anomaly."""
-        buf = RollingBuffer(max_size=10)
-        values = [22.0, 22.3, 21.8, 22.1, 21.9, 22.2, 21.7, 22.0, 22.1, 21.9]
+        buf = RollingBuffer(max_size=15)
+        values = [
+            22.0, 22.3, 21.8, 22.1, 21.9, 22.2, 21.7, 22.0, 22.1, 21.9, 22.0,
+        ]
         for i, v in enumerate(values):
             buf.add("temperature", make_timestamp(i), v)
 
@@ -202,8 +248,10 @@ class TestNoiseDetector:
 
     def test_noise_warning(self, detector):
         """Std dev ~1.8 (3.6x baseline of 0.5) -> WARNING."""
-        buf = RollingBuffer(max_size=10)
-        values = [22.0, 24.0, 20.0, 23.5, 20.5, 24.0, 20.0, 23.0, 21.0, 24.0]
+        buf = RollingBuffer(max_size=15)
+        values = [
+            22.0, 24.0, 20.0, 23.5, 20.5, 24.0, 20.0, 23.0, 21.0, 24.0, 21.5,
+        ]
         for i, v in enumerate(values):
             buf.add("temperature", make_timestamp(i), v)
 
@@ -214,8 +262,10 @@ class TestNoiseDetector:
 
     def test_noise_critical(self, detector):
         """Std dev ~4.5 (9x baseline of 0.5) -> CRITICAL."""
-        buf = RollingBuffer(max_size=10)
-        values = [22.0, 30.0, 15.0, 28.0, 16.0, 29.0, 14.0, 27.0, 17.0, 30.0]
+        buf = RollingBuffer(max_size=15)
+        values = [
+            22.0, 30.0, 15.0, 28.0, 16.0, 29.0, 14.0, 27.0, 17.0, 30.0, 22.5,
+        ]
         for i, v in enumerate(values):
             buf.add("temperature", make_timestamp(i), v)
 
@@ -242,8 +292,10 @@ class TestNoiseDetector:
 
     def test_light_noise(self, detector):
         """Light with std ~80 (4x baseline of 20) -> WARNING."""
-        buf = RollingBuffer(max_size=10)
-        values = [500, 600, 400, 650, 350, 620, 380, 640, 360, 610]
+        buf = RollingBuffer(max_size=15)
+        values = [
+            500, 600, 400, 650, 350, 620, 380, 640, 360, 610, 500,
+        ]
         for i, v in enumerate(values):
             buf.add("light", make_timestamp(i), float(v))
 
@@ -333,6 +385,118 @@ class TestDropoutDetector:
 
 
 # ===========================================================================
+# MISSING CHANNEL (MISSING_DATA) TESTS
+# ===========================================================================
+
+class TestMissingChannelDetector:
+
+    @pytest.fixture
+    def detector(self):
+        return MissingChannelDetector(
+            ["temperature", "humidity", "light"],
+            consec_warning=3,
+            consec_critical=5,
+            require_peer_non_null=True,
+        )
+
+    def test_no_event_when_all_null_requires_peer(self, detector):
+        buf = RollingBuffer(max_size=5)
+        ev = []
+        for i in range(5):
+            r = Reading(
+                session_id=1,
+                timestamp=make_timestamp(i),
+                temperature=None,
+                humidity=None,
+                light=None,
+            )
+            ev.extend(detector.detect_reading(r, buf, 1))
+        assert not any(e.anomaly_type == AnomalyType.MISSING_DATA for e in ev)
+
+    def test_warning_then_critical_with_peer_signal(self, detector):
+        buf = RollingBuffer(max_size=5)
+        events = []
+        for i in range(6):
+            r = Reading(
+                session_id=1,
+                timestamp=make_timestamp(i),
+                temperature=None,
+                humidity=55.0,
+                light=500,
+            )
+            events.extend(detector.detect_reading(r, buf, 1))
+        missing = [e for e in events if e.anomaly_type == AnomalyType.MISSING_DATA]
+        assert any(e.severity == AlertSeverity.WARNING for e in missing)
+        assert any(e.severity == AlertSeverity.CRITICAL for e in missing)
+
+    def test_recovery_clears_streak(self, detector):
+        buf = RollingBuffer(max_size=5)
+        for i in range(2):
+            detector.detect_reading(
+                Reading(
+                    session_id=1,
+                    timestamp=make_timestamp(i),
+                    temperature=None,
+                    humidity=55.0,
+                    light=500,
+                ),
+                buf,
+                1,
+            )
+        detector.detect_reading(
+            Reading(
+                session_id=1,
+                timestamp=make_timestamp(2),
+                temperature=22.0,
+                humidity=55.0,
+                light=500,
+            ),
+            buf,
+            1,
+        )
+        events = detector.detect_reading(
+            Reading(
+                session_id=1,
+                timestamp=make_timestamp(3),
+                temperature=None,
+                humidity=55.0,
+                light=500,
+            ),
+            buf,
+            1,
+        )
+        assert not any(e.anomaly_type == AnomalyType.MISSING_DATA for e in events)
+
+    def test_reset_clears_state(self, detector):
+        buf = RollingBuffer(max_size=5)
+        for i in range(4):
+            detector.detect_reading(
+                Reading(
+                    session_id=1,
+                    timestamp=make_timestamp(i),
+                    humidity=55.0,
+                    light=500,
+                    temperature=None,
+                ),
+                buf,
+                1,
+            )
+        detector.reset(1)
+        ev = detector.detect_reading(
+            Reading(
+                session_id=1,
+                timestamp=make_timestamp(10),
+                humidity=55.0,
+                light=500,
+                temperature=None,
+            ),
+            buf,
+            1,
+        )
+        assert not any(e.anomaly_type == AnomalyType.MISSING_DATA for e in ev)
+
+
+# ===========================================================================
 # ANOMALY DETECTION SERVICE (ORCHESTRATOR) TESTS
 # ===========================================================================
 
@@ -367,14 +531,28 @@ class TestAnomalyDetectionService:
         drift_events = [e for e in all_events if e.anomaly_type == AnomalyType.DRIFT]
         assert len(drift_events) > 0
 
-    def test_null_temperature_skipped(self, service):
-        """Reading with null temperature -> no crash, no temp anomaly."""
-        for i in range(15):
+    def test_null_temperature_triggers_missing_data_with_peers(self, service):
+        """Null temperature while humidity/light present -> MISSING_DATA after streak."""
+
+        accumulated = []
+
+        md_for_temp = []
+        for i in range(8):
             r = make_reading(1, i)
             r.temperature = None
             events = service.process_reading(r)
-            temp_events = [e for e in events if e.variable == "temperature"]
-            assert len(temp_events) == 0
+            accumulated.extend(events)
+            md_for_temp.extend([
+                e for e in events
+                if e.anomaly_type == AnomalyType.MISSING_DATA and e.variable == "temperature"
+            ])
+        assert len(md_for_temp) >= 1
+        spike_drift_noise_temp = [
+            e for e in accumulated
+            if e.variable == "temperature"
+            and e.anomaly_type not in (AnomalyType.MISSING_DATA, AnomalyType.DROPOUT)
+        ]
+        assert len(spike_drift_noise_temp) == 0
 
     def test_dropout_detected_through_service(self, service):
         """Feed readings with a gap -> dropout detected."""
@@ -422,6 +600,72 @@ class TestAnomalyDetectionService:
         assert summary["by_variable"]["temperature"] == 1
         assert summary["by_variable"]["humidity"] == 1
 
+    def test_core_light_residual_quiet_on_stable_series(self):
+        svc = AnomalyDetectionService(
+            drift_window=10,
+            noise_window=10,
+            noise_warn_mult=3.0,
+            noise_crit_mult=5.0,
+            dropout_multiplier=3,
+            dropout_baseline_count=5,
+            core_light_residual_cusum=True,
+            residual_cusum_h=4.0,
+            extended_detectors=False,
+        )
+        all_e = []
+        for i in range(40):
+            all_e.extend(svc.process_reading(make_reading(1, i)))
+        level = [e for e in all_e if e.anomaly_type == AnomalyType.LEVEL_SHIFT]
+        assert len(level) == 0
+
+    def test_constructor_kwargs_builds_service(self):
+        from services.anomaly_service import anomaly_detection_constructor_kwargs
+
+        svc = AnomalyDetectionService(**anomaly_detection_constructor_kwargs(extended_detectors=False))
+        assert svc is not None
+
+
+# ===========================================================================
+# LIGHT RESIDUAL CUSUM (OPTIONAL CORE)
+# ===========================================================================
+
+
+class TestLightResidualCUSUMDetector:
+
+    def test_quiet_on_flat_baseline(self):
+        det = LightResidualCUSUMDetector(
+            SENSOR_PROFILES,
+            allowance_k=0.35,
+            decision_h=4.0,
+            baseline_window=10,
+            min_prior=6,
+        )
+        buf = RollingBuffer(30)
+        events = []
+        for i in range(15):
+            buf.add("temperature", make_timestamp(i), 22.0)
+            events.extend(det.detect_reading(make_reading(1, i, temperature=22.0), buf, 1))
+        assert not any(e.anomaly_type == AnomalyType.LEVEL_SHIFT for e in events)
+
+    def test_fires_on_sustained_offset(self):
+        det = LightResidualCUSUMDetector(
+            SENSOR_PROFILES,
+            allowance_k=0.2,
+            decision_h=2.5,
+            baseline_window=10,
+            min_prior=6,
+        )
+        buf = RollingBuffer(40)
+        events = []
+        for i in range(18):
+            buf.add("temperature", make_timestamp(i), 22.0)
+            events.extend(det.detect_reading(make_reading(1, i, temperature=22.0), buf, 1))
+        for i in range(18, 35):
+            buf.add("temperature", make_timestamp(i), 25.0)
+            events.extend(det.detect_reading(make_reading(1, i, temperature=25.0), buf, 1))
+        hits = [e for e in events if e.anomaly_type == AnomalyType.LEVEL_SHIFT]
+        assert len(hits) >= 1
+
 
 # ===========================================================================
 # SPIKE DETECTOR TESTS
@@ -441,6 +685,16 @@ class TestSpikeDetector:
         reading = make_reading(1, 20, temperature=22.2)
         events = detector.detect_reading(reading, buf, session_id=1)
         assert len(events) == 0
+
+    @pytest.mark.parametrize("delta,expect_spike", [(12.0, True), (0.15, False)])
+    def test_spike_prior_flat_floor(self, detector, delta, expect_spike):
+        buf = RollingBuffer(max_size=30)
+        for i in range(20):
+            buf.add("temperature", make_timestamp(i), 22.0)
+        reading = make_reading(1, 20, temperature=22.0 + delta)
+        events = detector.detect_reading(reading, buf, session_id=1)
+        spikes = [e for e in events if e.variable == "temperature" and e.anomaly_type == AnomalyType.SPIKE]
+        assert (len(spikes) > 0) == expect_spike
 
     def test_spike_detected_high(self, detector):
         """A value far above the mean should trigger a spike."""
@@ -462,8 +716,8 @@ class TestSpikeDetector:
         temp_spikes = [e for e in events if e.variable == "temperature"]
         assert any(e.severity == AlertSeverity.CRITICAL for e in temp_spikes)
 
-    def test_not_enough_data_skips(self, detector):
-        """Less than MIN_BUFFER_SIZE readings should not trigger z-score spike."""
+    def test_not_enough_prior_samples_skips(self, detector):
+        """Fewer than min_prior prior points -> no z-score spike."""
         buf = RollingBuffer(max_size=30)
         for i in range(3):
             buf.add("temperature", make_timestamp(i), 22.0)

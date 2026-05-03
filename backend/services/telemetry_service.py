@@ -125,13 +125,33 @@ def store_telemetry_row(
     db.commit()
     db.refresh(row)
     try:
+        from services.auto_ventilation_service import process_auto_ventilation_after_commit
+
+        process_auto_ventilation_after_commit(db, plant_id=pid, session_id=sid, row=row)
+    except Exception:
+        logger.exception(
+            "auto ventilation step failed telemetry id=%s plant_id=%s session_id=%s",
+            getattr(row, "id", None),
+            pid,
+            sid,
+        )
+    try:
         from services.anomaly_runtime import run_detection_and_persist
 
         run_detection_and_persist(db, row)
     except Exception:
         logger.exception("anomaly detection failed for telemetry id=%s", getattr(row, "id", None))
-    return row
+    if pid is not None and sid is not None and getattr(row, "id", None):
+        try:
+            from services.camera_triggers_service import maybe_capture_after_telemetry
 
+            maybe_capture_after_telemetry(db, row, pid, sid)
+        except Exception:
+            logger.exception(
+                "camera triggers failed telemetry id=%s",
+                getattr(row, "id", None),
+            )
+    return row
 
 def get_latest_reading(db: Session) -> Optional[Dict[str, Any]]:
     row = db.query(Telemetry).order_by(Telemetry.timestamp.desc()).first()

@@ -184,6 +184,41 @@ def run_sqlite_migrations(engine) -> None:
             )
         )
 
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS plant_captures (
+                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    plant_id INTEGER NOT NULL,
+                    session_id INTEGER,
+                    telemetry_id INTEGER,
+                    created_at DATETIME NOT NULL,
+                    trigger VARCHAR(32) NOT NULL,
+                    detail VARCHAR(256),
+                    storage_path VARCHAR(512) NOT NULL,
+                    height_cm REAL,
+                    FOREIGN KEY(plant_id) REFERENCES plants(id) ON DELETE CASCADE,
+                    FOREIGN KEY(session_id) REFERENCES recording_sessions(id) ON DELETE SET NULL,
+                    FOREIGN KEY(telemetry_id) REFERENCES telemetry(id) ON DELETE SET NULL
+                )
+                """
+            )
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_plant_captures_plant_id ON plant_captures (plant_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_plant_captures_session_id ON plant_captures (session_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_plant_captures_created_at ON plant_captures (created_at)")
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_plant_captures_trigger ON plant_captures (trigger)"
+            )
+        )
+
 
 def bootstrap_auth(engine) -> None:
     """

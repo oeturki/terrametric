@@ -35,17 +35,24 @@ class DropoutDetector(BaseDetector):
     we flag it as a dropout.
 
     SEVERITY:
-        INFO     if gap is  3-5x  expected  (brief hiccup)
-        WARNING  if gap is  5-15x expected  (connection lost briefly)
-        CRITICAL if gap is  >15x  expected  (major outage)
+        Assigns INFO / WARNING / CRITICAL via ``severity_warning_ratio`` and
+        ``severity_critical_ratio`` (defaults align with legacy 5× and 15× gap ratios vs expected).
 
     STATE:
     Tracked per session_id so multiple simultaneous sessions don't interfere.
     """
 
-    def __init__(self, multiplier: int, baseline_count: int):
+    def __init__(
+        self,
+        multiplier: int,
+        baseline_count: int,
+        severity_warning_ratio: int = 5,
+        severity_critical_ratio: int = 15,
+    ):
         self._multiplier = multiplier          # gap must exceed this many x expected to trigger
         self._baseline_count = baseline_count  # how many intervals to collect before detecting
+        self._warn_ratio = severity_warning_ratio
+        self._crit_ratio = severity_critical_ratio
         # Per-session state:
         self._last_seen: dict[int, datetime] = {}       # timestamp of most recent reading
         self._intervals: dict[int, list[float]] = {}    # collected gaps during learning phase
@@ -104,10 +111,10 @@ class DropoutDetector(BaseDetector):
         # Estimate how many readings were missed in this gap
         missed = int(gap / expected) - 1
 
-        # Assign severity based on how extreme the gap is
-        if gap_ratio > 15:
+        # Assign severity based on how extreme the gap is (align with SAMPLING_INTERVAL / Pi cadence via env).
+        if gap_ratio > self._crit_ratio:
             severity = AlertSeverity.CRITICAL
-        elif gap_ratio > 5:
+        elif gap_ratio > self._warn_ratio:
             severity = AlertSeverity.WARNING
         else:
             severity = AlertSeverity.INFO

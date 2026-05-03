@@ -164,6 +164,21 @@ def get_open_session_singleton(db: Session) -> Optional[RecordingSession]:
     return db.query(RecordingSession).filter(RecordingSession.ended_at.is_(None)).first()
 
 
+def get_open_recording_session_for_user(db: Session, user_id: int) -> Optional[RecordingSession]:
+    """Open session started by this user, plant owned by same user (avoids cross-owner leaks)."""
+    return (
+        db.query(RecordingSession)
+        .join(Plant, RecordingSession.plant_id == Plant.id)
+        .filter(
+            RecordingSession.started_by == user_id,
+            RecordingSession.ended_at.is_(None),
+            Plant.owner_id == user_id,
+        )
+        .order_by(RecordingSession.started_at.desc())
+        .first()
+    )
+
+
 def get_open_session_for_plant(db: Session, plant_id: int) -> Optional[RecordingSession]:
     """Open session for this plant, if any."""
     return (

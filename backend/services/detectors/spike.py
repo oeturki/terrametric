@@ -3,12 +3,11 @@ Spike Detector -- catches single readings that are wildly out of range.
 
 Two layers of protection:
   1. Hard bounds: reject physically impossible values (DHT11 returning 0/255)
-  2. Statistical: flag values more than k standard deviations from the rolling mean
+  2. Statistical: flag values more than k effective-sigma from the rolling mean of *prior* readings
+     (current point excluded from mean/scale to avoid self-influence).
 """
 
 from __future__ import annotations
-
-from typing import Optional
 
 import numpy as np
 
@@ -16,32 +15,20 @@ from enums import AnomalyType, AlertSeverity
 from .base import BaseDetector, AnomalyEvent, SensorProfile, Reading
 from .rolling_buffer import RollingBuffer
 
-
 HARD_BOUNDS: dict[str, tuple[float, float]] = {
     "temperature": (-10.0, 60.0),
     "humidity": (0.0, 100.0),
     "light": (0.0, 1023.0),
 }
 
-MIN_BUFFER_SIZE = 5
-
 
 class SpikeDetector(BaseDetector):
     """
-    Detects single-reading outliers using z-score and hard range bounds.
+    Single-reading outliers: z-style score vs prior window + hard bounds.
 
-    Unlike the NoiseDetector (which looks at the window's overall jitter),
-    SpikeDetector fires on *individual* readings that deviate sharply from
-    the recent trend.  This catches DHT11 glitches that return 0 or 255
-    for a single cycle before recovering.
-
-    MATH:
-        z = |x - mean| / std
-        WARNING  at z > warning_z  (default 4.0)
-        CRITICAL at z > critical_z (default 6.0)
-
-    Hard bounds are checked first -- any reading outside the physical range
-    of the sensor is automatically CRITICAL regardless of z-score.
+    Prior-only baseline avoids inflating/deflating spread with the candidate point.
+    ``effective_std = max(raw_scale, baseline_noise / std_floor_denom)`` reduces
+    false spikes on nearly flat traces; optional MAD via ``use_mad``.
     """
 
     def __init__(
@@ -49,10 +36,18 @@ class SpikeDetector(BaseDetector):
         profiles: dict[str, SensorProfile],
         warning_z: float = 4.0,
         critical_z: float = 6.0,
+        std_floor_denom: float = 4.0,
+        min_prior: int = 5,
+        min_abs_delta: float = 0.0,
+        use_mad: bool = False,
     ):
         self._profiles = profiles
         self._warning_z = warning_z
         self._critical_z = critical_z
+        self._std_floor_denom = max(std_floor_denom, 1e-6)
+        self._min_prior = max(min_prior, 2)
+        self._min_abs_delta = max(min_abs_delta, 0.0)
+        self._use_mad = use_mad
 
     def detect_reading(
         self,
@@ -74,12 +69,35 @@ class SpikeDetector(BaseDetector):
             value = variable_values.get(variable)
             if value is None:
                 continue
-            event = self._check_spike(buffer, variable, float(value), session_id, profile, reading.timestamp)
+            event = self._check_spike(
+                buffer, variable, float(value), session_id, profile, reading.timestamp
+            )
             if event:
                 events.append(event)
         return events
 
-    def _check_spike(self, buffer, variable, value, session_id, profile, timestamp):
+    def _scale_and_mean(self, priors: np.ndarray, profile: SensorProfile) -> tuple[float, float]:
+        mean = float(np.mean(priors))
+        floor = profile.baseline_noise / self._std_floor_denom
+        if self._use_mad:
+            med = float(np.median(priors))
+            mad = float(np.median(np.abs(priors - med)))
+            mad_sigma = mad * 1.4826
+            scale = max(mad_sigma, floor, 1e-9)
+        else:
+            std = float(np.std(priors, ddof=0))
+            scale = max(std, floor, 1e-9)
+        return mean, scale
+
+    def _check_spike(
+        self,
+        buffer: RollingBuffer,
+        variable: str,
+        value: float,
+        session_id: int,
+        profile: SensorProfile,
+        timestamp,
+    ):
         lo, hi = HARD_BOUNDS.get(variable, (float("-inf"), float("inf")))
         if value < lo or value > hi:
             return AnomalyEvent(
@@ -92,32 +110,26 @@ class SpikeDetector(BaseDetector):
                 detail={"value": value, "lower_bound": lo, "upper_bound": hi, "reason": "hard_bounds"},
             )
 
-        if buffer.size(variable) < MIN_BUFFER_SIZE:
+        if buffer.size(variable) < self._min_prior + 1:
             return None
 
         values = buffer.get_values(variable)
-        mean = float(np.mean(values))
-        std = float(np.std(values))
-
-        if std < 1e-9:
-            if abs(value - mean) > profile.baseline_noise * self._warning_z:
-                return AnomalyEvent(
-                    timestamp=timestamp,
-                    session_id=session_id,
-                    variable=variable,
-                    anomaly_type=AnomalyType.SPIKE,
-                    severity=AlertSeverity.CRITICAL,
-                    message=f"{variable} spike: {value:.1f} {profile.unit} (all prior readings identical at {mean:.1f})",
-                    detail={"value": round(value, 2), "mean": round(mean, 2), "std": 0.0, "z_score": float("inf"), "reason": "zero_variance"},
-                )
+        priors = np.asarray(values[:-1], dtype=float)
+        if priors.size < self._min_prior:
             return None
 
-        z = abs(value - mean) / std
+        mean, scale = self._scale_and_mean(priors, profile)
+
+        z = abs(value - mean) / scale
+        if self._min_abs_delta > 0 and abs(value - mean) < self._min_abs_delta:
+            return None
+
         if z <= self._warning_z:
             return None
 
         severity = AlertSeverity.CRITICAL if z > self._critical_z else AlertSeverity.WARNING
         direction = "above" if value > mean else "below"
+        scale_label = "MADσ" if self._use_mad else "σ"
 
         return AnomalyEvent(
             timestamp=timestamp,
@@ -125,6 +137,15 @@ class SpikeDetector(BaseDetector):
             variable=variable,
             anomaly_type=AnomalyType.SPIKE,
             severity=severity,
-            message=f"{variable} spike: {value:.1f} {profile.unit} ({z:.1f}σ {direction} mean of {mean:.1f})",
-            detail={"value": round(value, 2), "mean": round(mean, 2), "std": round(std, 4), "z_score": round(z, 2)},
+            message=(
+                f"{variable} spike: {value:.1f} {profile.unit} "
+                f"({z:.1f}{scale_label} {direction} prior mean {mean:.1f})"
+            ),
+            detail={
+                "value": round(value, 2),
+                "mean": round(mean, 2),
+                "scale": round(scale, 4),
+                "z_score": round(z, 2),
+                "prior_n": int(priors.size),
+            },
         )

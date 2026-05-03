@@ -46,9 +46,9 @@ desktop.ini
 pi/terrametric-pi.local.env
 backend/terrametric-laptop.local.env
 
+backend/data/captures/
+
 # Database
-*.db
-*.sqlite3
 
 # Logs
 *.log

@@ -27,6 +27,8 @@ Architecture:
 
 from __future__ import annotations
 
+from typing import Optional
+
 from enums import EnvironmentVariable
 
 # All public types re-exported so other services can do:
@@ -41,12 +43,14 @@ from services.detectors import (
     DriftDetector,
     NoiseDetector,
     DropoutDetector,
+    MissingChannelDetector,
     SpikeDetector,
     CorrelationDetector,
     CUSUMDetector,
     EWMADetector,
     SeasonalDetector,
 )
+from services.detectors.residual_light_cusum import LightResidualCUSUMDetector
 
 
 # The three environmental variables we run anomaly detection on.
@@ -88,33 +92,90 @@ class AnomalyDetectionService:
         noise_warn_mult: float = 3.0,     # noise WARNING at 3x baseline
         noise_crit_mult: float = 5.0,     # noise CRITICAL at 5x baseline
         dropout_multiplier: int = 3,      # gap must be 3x expected to flag
-        dropout_baseline_count: int = 20,  # learn expected interval from first 20 readings
-        extended_detectors: bool = False,  # add correlation, CUSUM, EWMA, seasonal (see FR10_EXTENDED_DETECTORS)
+        dropout_baseline_count: int = 20,   # learn expected interval from first 20 readings
+        dropout_severity_warning_ratio: int = 5,
+        dropout_severity_critical_ratio: int = 15,
+        spike_warning_z: float = 4.0,
+        spike_critical_z: float = 6.0,
+        spike_std_floor_denom: float = 4.0,
+        spike_min_prior: int = 5,
+        spike_min_abs_delta: float = 0.0,
+        spike_use_mad: bool = False,
+        drift_min_r_squared: float = 0.12,
+        drift_mk_suppress: bool = False,
+        drift_mk_p_max: float = 0.15,
+        core_light_residual_cusum: bool = False,
+        residual_cusum_k: float = 0.35,
+        residual_cusum_h: float = 4.0,
+        residual_cusum_window: int = 15,
+        residual_cusum_min_prior: int = 8,
+        missing_channel_enabled: bool = True,
+        missing_channel_consec_warning: int = 4,
+        missing_channel_consec_critical: int = 8,
+        missing_channel_require_peer_signal: bool = True,
+        extended_detectors: bool = False,
     ):
         profiles = profiles or SENSOR_PROFILES
-        self._variables = [v.value for v in MONITORED_VARIABLES]  # ["temperature", "humidity", "light"]
+        self._variables = [v.value for v in MONITORED_VARIABLES]
         self._drift_window = drift_window
         self._noise_window = noise_window
 
-        # One buffer per logical stream (prefer plant_id for live data; else session_id for lab/simulation).
         self._buffers: dict[int, RollingBuffer] = {}
 
-        # Detectors that maintain per-session state and need explicit reset()
-        self._dropout = DropoutDetector(dropout_multiplier, dropout_baseline_count)
+        self._dropout = DropoutDetector(
+            dropout_multiplier,
+            dropout_baseline_count,
+            dropout_severity_warning_ratio,
+            dropout_severity_critical_ratio,
+        )
         self._correlation = CorrelationDetector(window_size=noise_window)
         self._cusum = CUSUMDetector(profiles)
         self._ewma = EWMADetector(profiles)
         self._seasonal = SeasonalDetector()
+        self._missing_channel: Optional[MissingChannelDetector] = None
+        self._light_residual_cusum: Optional[LightResidualCUSUMDetector] = None
 
-        # All detectors in a single list, iterated by process_reading().
-        # Core set is testable baseline; extended rules are assumption-heavy (sampling structure).
-        spike = SpikeDetector(profiles)
-        core: list[BaseDetector] = [
-            self._dropout,
-            spike,
-            DriftDetector(profiles, drift_window),
-            NoiseDetector(profiles, noise_window, noise_warn_mult, noise_crit_mult),
-        ]
+        spike = SpikeDetector(
+            profiles,
+            warning_z=spike_warning_z,
+            critical_z=spike_critical_z,
+            std_floor_denom=spike_std_floor_denom,
+            min_prior=spike_min_prior,
+            min_abs_delta=spike_min_abs_delta,
+            use_mad=spike_use_mad,
+        )
+
+        drift = DriftDetector(
+            profiles,
+            drift_window,
+            min_r_squared=drift_min_r_squared,
+            use_mk_suppression=drift_mk_suppress,
+            mk_p_max=drift_mk_p_max,
+        )
+        noise = NoiseDetector(profiles, noise_window, noise_warn_mult, noise_crit_mult)
+
+        core: list[BaseDetector] = [self._dropout]
+        if missing_channel_enabled:
+            self._missing_channel = MissingChannelDetector(
+                list(self._variables),
+                consec_warning=missing_channel_consec_warning,
+                consec_critical=missing_channel_consec_critical,
+                require_peer_non_null=missing_channel_require_peer_signal,
+            )
+            core.append(self._missing_channel)
+        core.extend([spike, drift])
+        # Optional change-point-lite: mutually exclusive with extended's full CUSUM in simulate.
+        if core_light_residual_cusum and not extended_detectors:
+            self._light_residual_cusum = LightResidualCUSUMDetector(
+                profiles,
+                allowance_k=residual_cusum_k,
+                decision_h=residual_cusum_h,
+                baseline_window=residual_cusum_window,
+                min_prior=residual_cusum_min_prior,
+            )
+            core.append(self._light_residual_cusum)
+        core.append(noise)
+
         extended: list[BaseDetector] = [
             self._correlation,
             self._cusum,
@@ -201,7 +262,51 @@ class AnomalyDetectionService:
         """Clean up detector state for a plant (sample) or lab session id."""
         self._buffers.pop(stream_key, None)
         self._dropout.reset(stream_key)
+        if self._missing_channel:
+            self._missing_channel.reset(stream_key)
         self._correlation.reset(stream_key)
         self._cusum.reset(stream_key)
         self._ewma.reset(stream_key)
         self._seasonal.reset(stream_key)
+        if self._light_residual_cusum:
+            self._light_residual_cusum.reset(stream_key)
+
+
+def anomaly_detection_constructor_kwargs(extended_detectors: bool | None = None) -> dict:
+    """
+    Build ``AnomalyDetectionService(...)`` kwargs from ``config.settings`` (.env aligned).
+    When ``extended_detectors`` is None, uses ``settings.FR10_EXTENDED_DETECTORS``.
+    Synthetic lab passes ``extended_detectors=True`` explicitly so all rule packs run together.
+    """
+    from config import settings
+
+    ext = extended_detectors if extended_detectors is not None else settings.FR10_EXTENDED_DETECTORS
+    return {
+        "drift_window": settings.DRIFT_WINDOW_SIZE,
+        "noise_window": settings.NOISE_WINDOW_SIZE,
+        "noise_warn_mult": settings.NOISE_MULTIPLIER_WARNING,
+        "noise_crit_mult": settings.NOISE_MULTIPLIER_CRITICAL,
+        "dropout_multiplier": settings.DROPOUT_MULTIPLIER,
+        "dropout_baseline_count": settings.DROPOUT_BASELINE_READINGS,
+        "dropout_severity_warning_ratio": settings.DROPOUT_SEVERITY_WARNING,
+        "dropout_severity_critical_ratio": settings.DROPOUT_SEVERITY_CRITICAL,
+        "spike_warning_z": settings.SPIKE_WARNING_Z,
+        "spike_critical_z": settings.SPIKE_CRITICAL_Z,
+        "spike_std_floor_denom": settings.SPIKE_STD_FLOOR_DENOM,
+        "spike_min_prior": settings.SPIKE_MIN_PRIOR,
+        "spike_min_abs_delta": settings.SPIKE_MIN_ABS_DELTA,
+        "spike_use_mad": settings.SPIKE_USE_MAD,
+        "drift_min_r_squared": settings.DRIFT_MIN_R_SQUARED,
+        "drift_mk_suppress": settings.FR10_DRIFT_MK_SUPPRESS,
+        "drift_mk_p_max": settings.FR10_DRIFT_MK_P_MAX,
+        "core_light_residual_cusum": settings.FR10_CORE_LIGHT_RESIDUAL_CUSUM,
+        "residual_cusum_k": settings.RESIDUAL_CUSUM_K,
+        "residual_cusum_h": settings.RESIDUAL_CUSUM_H,
+        "residual_cusum_window": settings.RESIDUAL_CUSUM_WINDOW,
+        "residual_cusum_min_prior": settings.RESIDUAL_CUSUM_MIN_PRIOR,
+        "missing_channel_enabled": settings.MISSING_CHANNEL_ENABLED,
+        "missing_channel_consec_warning": settings.MISSING_CHANNEL_CONSEC_WARNING,
+        "missing_channel_consec_critical": settings.MISSING_CHANNEL_CONSEC_CRITICAL,
+        "missing_channel_require_peer_signal": settings.MISSING_CHANNEL_REQUIRE_PEER_SIGNAL,
+        "extended_detectors": ext,
+    }

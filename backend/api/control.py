@@ -4,6 +4,8 @@ Per-plant (sample) control variables: thresholds and camera options.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -19,6 +21,8 @@ from schemas.control import (
 from services.default_control_profile import default_control_dict
 import services.plant_control_service as pc_svc
 import services.plant_service as plant_svc
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -58,4 +62,13 @@ def save_control(body: ControlProfilePayload, db: Session = Depends(get_db), use
 def reset_control(body: ControlResetBody, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     _require_owner_plant(db, body.plant_id, user.id)
     saved = pc_svc.reset_to_defaults(db, body.plant_id)
+    try:
+        from services.auto_ventilation_service import reconcile_auto_ventilation_after_profile_save
+
+        reconcile_auto_ventilation_after_profile_save(db, body.plant_id)
+    except Exception:
+        logger.exception(
+            "auto ventilation reconcile after reset failed plant_id=%s",
+            body.plant_id,
+        )
     return {"status": "reset", "group": str(body.plant_id), "plant_id": body.plant_id, "controls": saved}
