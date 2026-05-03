@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from models.plant import Plant
 from models.plant_control import PlantControl
+from schemas.control import normalize_controls_for_api
 from services.default_control_profile import default_control_dict, default_control_json
 from services.plant_service import get_plant
 
@@ -28,7 +29,7 @@ def get_control_dict_for_plant(db: Session, plant_id: int) -> Optional[Dict[str,
     row = db.query(PlantControl).filter(PlantControl.plant_id == plant_id).first()
     if not row:
         return None
-    return json.loads(row.profile_json)
+    return normalize_controls_for_api(json.loads(row.profile_json))
 
 
 def update_control_dict(db: Session, plant_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -40,7 +41,7 @@ def update_control_dict(db: Session, plant_id: int, data: Dict[str, Any]) -> Dic
     else:
         row.profile_json = s
     db.commit()
-    return json.loads(row.profile_json)
+    return normalize_controls_for_api(json.loads(row.profile_json))
 
 
 def reset_to_defaults(db: Session, plant_id: int) -> Dict[str, Any]:

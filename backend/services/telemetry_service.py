@@ -141,7 +141,9 @@ def store_telemetry_row(
         run_detection_and_persist(db, row)
     except Exception:
         logger.exception("anomaly detection failed for telemetry id=%s", getattr(row, "id", None))
-    if pid is not None and sid is not None and getattr(row, "id", None):
+    # Camera triggers need a plant profile; session_id may be None (bridge / backfill with
+    # plant_id only) — thresholds still run, so captures should too when Pi + settings allow.
+    if pid is not None and getattr(row, "id", None):
         try:
             from services.camera_triggers_service import maybe_capture_after_telemetry
 

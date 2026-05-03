@@ -18,7 +18,7 @@ class PlantCapture(Base):
     telemetry_id = Column(Integer, ForeignKey("telemetry.id", ondelete="SET NULL"), nullable=True, index=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    trigger = Column(String(32), nullable=False)  # manual | interval | desired_breach | motion
-    detail = Column(String(256), nullable=True)
+    trigger = Column(String(32), nullable=False)  # manual | interval | desired_breach | tolerance_breach | height_target | motion
+    detail = Column(Text, nullable=True)
     storage_path = Column(String(512), nullable=False)
     height_cm = Column(Float, nullable=True)

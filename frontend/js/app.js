@@ -24,7 +24,10 @@ function _afterPageShow(page) {
     if (typeof loadDevicesForSamples === 'function') loadDevicesForSamples();
     if (typeof refreshActiveRecording === 'function') refreshActiveRecording();
   }
-  if (page === 'viewdata') buildGalleryTabs();
+  if (page === 'viewdata') {
+    buildGalleryTabs();
+    if (typeof fetchGallery === 'function') fetchGallery();
+  }
   if (page === 'control' && typeof fetchControls === 'function') {
     fetchControls();
   }

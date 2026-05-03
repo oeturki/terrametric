@@ -298,12 +298,153 @@ function setGalleryPlant(i) {
   if (selectedGalleryPlant < 0) selectedGalleryPlant = 0;
   const sel = document.getElementById('gallerySampleSelect');
   if (sel && trays.length) sel.value = String(selectedGalleryPlant);
-  buildGalleryTimeline();
+  var gt = trays[selectedGalleryPlant];
+  if (gt && gt.id && typeof fetchGallery === 'function') {
+    fetchGallery(gt.id);
+  } else {
+    buildGalleryTimeline();
+  }
 }
 
 function onGallerySampleSelectChange(sel) {
   selectedGalleryPlant = sel ? (parseInt(sel.value, 10) || 0) : 0;
-  buildGalleryTimeline();
+  var t = trays[selectedGalleryPlant];
+  if (t && t.id && typeof fetchGallery === 'function') {
+    fetchGallery(t.id);
+  } else {
+    buildGalleryTimeline();
+  }
+}
+
+// ── Gallery capture labels + lightbox ──────────────────────────
+
+function galleryEscHtml(s) {
+  if (s == null || s === '') return '';
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function galleryBadgeMeta(trigger) {
+  var map = {
+    manual:            { cls: 'badge-manual',      label: 'Manual' },
+    desired_breach:    { cls: 'badge-breach',      label: 'Desired band' },
+    tolerance_breach:  { cls: 'badge-soft',        label: 'Tolerance' },
+    interval:          { cls: 'badge-interval',    label: 'Scheduled' },
+    motion:            { cls: 'badge-motion',      label: 'Motion' },
+    height_target:     { cls: 'badge-milestone',   label: 'Height goal' },
+  };
+  var row = map[trigger] || { cls: 'badge-default', label: 'Capture' };
+  var esc = galleryEscHtml(row.label);
+  return '<span class="gallery-trigger-badge ' + row.cls + '">' + esc + '</span>';
+}
+
+/** Main body text under the badge (supports newlines for multi-axis breaches). */
+function galleryReasonBody(trigger, detail) {
+  var d = detail && String(detail).trim();
+  if ((trigger || '') === 'desired_breach' || trigger === 'tolerance_breach') {
+    if (!d) return 'Reading outside thresholds.';
+    if (/^(temperature|humidity|light)(,(temperature|humidity|light))*$/i.test(d)) {
+      return (
+        'Outside bands (' +
+        d.split(',').join(', ') +
+        '). Stored before readable breach text was enabled.'
+      );
+    }
+    return d;
+  }
+  if (trigger === 'height_target') {
+    return d ? d : 'Height milestone capture.';
+  }
+  if (trigger === 'interval') {
+    return d ? ('Timed capture · ' + d + '.') : 'Timed capture (session interval).';
+  }
+  if (trigger === 'motion') {
+    return d ? ('Motion sensor triggered · ' + d + '.') : 'Motion-triggered capture.';
+  }
+  if (trigger === 'manual') {
+    return 'Dashboard capture while recording session was active.';
+  }
+  return d || 'Capture event.';
+}
+
+function galleryModalOnKeydown(ev) {
+  if (ev.key === 'Escape') {
+    ev.preventDefault();
+    closeGalleryCaptureModal();
+  }
+}
+
+function closeGalleryCaptureModal() {
+  var o = document.getElementById('captureModalOverlay');
+  if (!o) return;
+  var im = o.querySelector('.capture-modal-img');
+  if (im && im.dataset.blobUrl) {
+    try { URL.revokeObjectURL(im.dataset.blobUrl); } catch (_) { /* noop */ }
+  }
+  document.removeEventListener('keydown', galleryModalOnKeydown);
+  o.remove();
+}
+
+async function openGalleryCaptureModal(captureId) {
+  if (captureId == null || typeof authFetch !== 'function' || typeof API_BASE === 'undefined') return;
+  closeGalleryCaptureModal();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'captureModalOverlay';
+  overlay.className = 'capture-modal-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+
+  var panel = document.createElement('div');
+  panel.className = 'capture-modal';
+  panel.addEventListener('click', function (e) {
+    e.stopPropagation();
+  });
+
+  var head = document.createElement('div');
+  head.className = 'capture-modal-head';
+  var title = document.createElement('span');
+  title.className = 'capture-modal-title';
+  title.textContent = 'Capture #' + String(captureId);
+  var closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'capture-modal-close';
+  closeBtn.setAttribute('aria-label', 'Close');
+  closeBtn.textContent = '\u2715';
+  closeBtn.addEventListener('click', function () {
+    closeGalleryCaptureModal();
+  });
+  head.appendChild(title);
+  head.appendChild(closeBtn);
+
+  var img = document.createElement('img');
+  img.className = 'capture-modal-img';
+  img.alt = 'Captured image';
+
+  panel.appendChild(head);
+  panel.appendChild(img);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', function () {
+    closeGalleryCaptureModal();
+  });
+  document.addEventListener('keydown', galleryModalOnKeydown);
+
+  var path = '/api/camera/images/' + encodeURIComponent(String(captureId)) + '/file';
+  var url = API_BASE + (path.indexOf('/') === 0 ? path : '/' + path);
+  try {
+    var res = await authFetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var blob = await res.blob();
+    var u = URL.createObjectURL(blob);
+    img.dataset.blobUrl = u;
+    img.src = u;
+  } catch (_) {
+    img.alt = 'Could not load image';
+    img.removeAttribute('src');
+  }
 }
 
 // ── Gallery timeline ──────────────────────────
@@ -357,30 +498,62 @@ function buildGalleryTimeline() {
     byDay[day].push(p);
   });
 
-  timeline.innerHTML = Object.entries(byDay).map(([day, dayPhotos]) => `
-    <div class="day-section">
-      <div class="day-label">${day}</div>
-      <div class="day-grid">
-        ${dayPhotos.map(p => {
-          const t = new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          const thumbUrl = (p._blobUrl && String(p._blobUrl)) ? p._blobUrl : '';
-          const imgContent = thumbUrl
-            ? `<img src="${thumbUrl}" style="width:100%;height:100%;object-fit:cover;" alt="Plant photo">`
-            : `<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:40px;background:#e8f5e8;">🌿</div>`;
-          return `
-            <div class="photo-card">
-              <div class="photo-thumb" style="position:relative;overflow:hidden;">
-                ${imgContent}
-                ${p.height_cm ? `<div class="photo-height-tag">${p.height_cm} cm</div>` : ''}
-              </div>
-              <div class="photo-info">
-                <div class="photo-name">${plant.name?.split(' ')[0] || 'Plant'}</div>
-                <div class="photo-dt">🕐 ${t}</div>
-              </div>
-            </div>`;
+  timeline.innerHTML = Object.entries(byDay).map(([day, dayPhotos]) =>
+    `<div class="day-section">
+      <div class="day-label">${galleryEscHtml(day)}</div>
+      <div class="gallery-timeline" role="list">
+        ${dayPhotos.map(function (p) {
+    var dt = new Date(p.timestamp);
+    var ts = dt.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    var tsFull = dt.toLocaleString([], {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    var body = galleryReasonBody(p.trigger, p.detail);
+    var safeTs = galleryEscHtml(ts);
+    var safeFull = galleryEscHtml(tsFull);
+    var safeBody = galleryEscHtml(body);
+    var hCell =
+          p.height_cm != null && p.height_cm !== ''
+            ? galleryEscHtml(Number(p.height_cm).toFixed(1) + ' cm')
+            : galleryEscHtml('—');
+    var badge = galleryBadgeMeta(p.trigger || '');
+    return (
+            '<div class="gallery-timeline-item" role="listitem">' +
+            '<button type="button" class="gallery-capture-row" onclick="openGalleryCaptureModal(' +
+            p.id +
+            ')">' +
+            '<div class="gallery-row-grid">' +
+            '<div class="gallery-time-stack" title="' + safeFull + '">' +
+            '<span class="gallery-capture-clock">' +
+            safeTs +
+            '</span>' +
+            '<span class="gallery-capture-dateline">' +
+            safeFull +
+            '</span></div>' +
+            '<div class="gallery-capture-mid">' +
+            badge +
+            '<div class="gallery-capture-reason">' +
+            safeBody +
+            '</div></div>' +
+            '<span class="gallery-capture-h">' +
+            hCell +
+            '</span>' +
+            '</div></button></div>'
+    );
         }).join('')}
       </div>
-    </div>`).join('');
+    </div>`
+  ).join('');
 }
 
 // ── Telemetry recording (one active sample system-wide) ─────────────────

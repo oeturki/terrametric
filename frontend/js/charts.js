@@ -5,9 +5,7 @@
 //    * Render the four primary sensor charts on the View Data → Graphs tab.
 //    * Render the same data downsampled into the Home page mini-chart.
 //    * Compute richer per-channel stats (min, max, mean, median, σ, n, last).
-//    * Annotate each chart with a threshold band coming from Control Variables
-//      (warn-temp, warn-hum, warn-light, warn-height) so a researcher can see
-//      breaches at a glance.
+//    * Annotate charts from tolerance inputs plus an optional plant height goal line.
 //    * Allow pan/zoom via chartjs-plugin-zoom (wheel, pinch, drag-rect).
 //
 //  Data shape consumed:
@@ -24,10 +22,10 @@ if (typeof Chart !== 'undefined' && typeof window !== 'undefined') {
 }
 
 const SENSOR_META = {
-  temp:   { color: '#7a8c1e', unit: '\u00b0C',  label: 'Temperature', warnId: 'warn-temp',   warnDir: 'high' },
-  hum:    { color: '#4a7c8f', unit: '%',        label: 'Humidity',    warnId: 'warn-hum',    warnDir: 'high' },
-  light:  { color: '#c4711a', unit: ' lux',     label: 'Light',       warnId: 'warn-light',  warnDir: 'low'  },
-  height: { color: '#3d5016', unit: ' cm',      label: 'Plant height',warnId: 'warn-height', warnDir: 'high' },
+  temp:   { color: '#7a8c1e', unit: '\u00b0C',  label: 'Temperature', warnId: 'warn-temp-high',   warnDir: 'high' },
+  hum:    { color: '#4a7c8f', unit: '%',        label: 'Humidity',    warnId: 'warn-hum-high',    warnDir: 'high' },
+  light:  { color: '#c4711a', unit: ' lux',     label: 'Light',       warnId: 'warn-light-low',  warnDir: 'low'  },
+  height: { color: '#3d5016', unit: ' cm',      label: 'Plant height', warnId: null, goalId: 'height-target', warnDir: null },
 };
 
 // ── Pure stats helpers ─────────────────────────
@@ -50,16 +48,29 @@ function _computeStats(arr) {
   };
 }
 
-function _renderStatsPanel(targetId, stats, unit, threshold, warnDir) {
+function _renderStatsPanel(targetId, stats, unit, threshold, warnDir, mode) {
+  mode = mode || 'warn';
   const el = document.getElementById(targetId);
   if (!el) return;
   if (!stats) { el.innerHTML = '<div style="font-size:11px;color:var(--bark-mid);">No data in window.</div>'; return; }
   const fmt = (v) => v == null ? '--' : (Number(v).toFixed(2) + unit);
-  // Determine breach status for the "Last" cell
   let lastClass = '';
   if (threshold != null && stats.last != null) {
-    const breached = warnDir === 'high' ? stats.last >= threshold : stats.last <= threshold;
-    if (breached) lastClass = 'over';
+    if (mode === 'goal') {
+      if (stats.last >= threshold) lastClass = 'met';
+    } else if (warnDir === 'high') {
+      const breached = stats.last >= threshold;
+      if (breached) lastClass = 'over';
+    } else if (warnDir === 'low') {
+      const breached = stats.last <= threshold;
+      if (breached) lastClass = 'over';
+    }
+  }
+  const lbl = mode === 'goal' ? 'Goal ref.' : 'Threshold';
+  let thrDisp = '--';
+  if (threshold != null) {
+    if (mode === 'goal') thrDisp = Number(threshold).toFixed(2) + unit + ' (goal)';
+    else thrDisp = threshold + unit + ' ' + (warnDir === 'high' ? '\u25b2' : '\u25bc');
   }
   el.innerHTML = '' +
     '<div class="gm"><div class="gm-label">Min</div><div class="gm-val">'    + fmt(stats.min) + '</div></div>' +
@@ -69,21 +80,24 @@ function _renderStatsPanel(targetId, stats, unit, threshold, warnDir) {
     '<div class="gm"><div class="gm-label">\u03c3</div><div class="gm-val">'  + fmt(stats.stddev) + '</div></div>' +
     '<div class="gm"><div class="gm-label">n</div><div class="gm-val">'      + stats.n + '</div></div>' +
     '<div class="gm"><div class="gm-label">Last</div><div class="gm-val ' + lastClass + '">' + fmt(stats.last) + '</div></div>' +
-    '<div class="gm"><div class="gm-label">Threshold</div><div class="gm-val">' + (threshold != null ? threshold + unit + ' ' + (warnDir === 'high' ? '\u25b2' : '\u25bc') : '--') + '</div></div>';
+    '<div class="gm"><div class="gm-label">' + lbl + '</div><div class="gm-val">' + thrDisp + '</div></div>';
 }
-
 // ── Main chart renderer ────────────────────────
 
 function _readThresholds() {
   const out = {};
   Object.keys(SENSOR_META).forEach(k => {
-    const raw = document.getElementById(SENSOR_META[k].warnId);
+    const wid = SENSOR_META[k].warnId;
+    if (!wid) {
+      out[k] = null;
+      return;
+    }
+    const raw = document.getElementById(wid);
     const parsed = raw ? parseFloat(raw.value) : NaN;
     out[k] = Number.isFinite(parsed) ? parsed : null;
   });
   return out;
 }
-
 function _buildAnnotation(threshold, dir) {
   // Threshold band: shaded region above (warnDir=high) or below (warnDir=low) the threshold line.
   if (threshold == null) return null;
@@ -103,6 +117,27 @@ function _buildAnnotation(threshold, dir) {
       color: '#fff',
       font: { size: 9, family: 'DM Mono' },
       padding: 2,
+    },
+  };
+}
+
+function _buildGoalLineAnnotation(goalCm) {
+  if (goalCm == null || !Number.isFinite(goalCm)) return null;
+  return {
+    type: 'line',
+    yMin: goalCm,
+    yMax: goalCm,
+    borderColor: 'rgba(52, 88, 40, 0.92)',
+    borderWidth: 2,
+    borderDash: [6, 5],
+    label: {
+      display: true,
+      content: 'Goal ' + goalCm + ' cm',
+      position: 'center',
+      backgroundColor: 'rgba(52, 88, 40, 0.92)',
+      color: '#fdfcf7',
+      font: { size: 9, family: 'DM Mono' },
+      padding: { x: 6, y: 2 },
     },
   };
 }
@@ -140,9 +175,23 @@ function updateCharts(readings) {
     if (!ctx) return;
     if (charts[key]) charts[key].destroy();
 
-    const annotation = _buildAnnotation(thresholds[key], meta.warnDir);
-    const chartConfig = {
-      type: 'line',
+    let annotation = null;
+    let panelThr = thresholds[key];
+    let panelDir = meta.warnDir;
+    let panelMode = 'warn';
+
+    if (key === 'height') {
+      const gel = meta.goalId ? document.getElementById(meta.goalId) : null;
+      const gv = gel ? parseFloat(gel.value) : NaN;
+      panelThr = Number.isFinite(gv) ? gv : null;
+      annotation = panelThr != null ? _buildGoalLineAnnotation(panelThr) : null;
+      panelMode = panelThr != null ? 'goal' : 'warn';
+      panelDir = 'high';
+    } else {
+      annotation = _buildAnnotation(thresholds[key], meta.warnDir);
+    }
+
+    const chartConfig = {      type: 'line',
       data: {
         labels,
         datasets: [{
@@ -180,7 +229,14 @@ function updateCharts(readings) {
     };
     charts[key] = new Chart(ctx, chartConfig);
 
-    _renderStatsPanel('stats_' + key, _computeStats(datasets[key]), meta.unit, thresholds[key], meta.warnDir);
+    _renderStatsPanel(
+      'stats_' + key,
+      _computeStats(datasets[key]),
+      meta.unit,
+      panelThr,
+      panelDir,
+      panelMode,
+    );
   });
 
   updateHomeChart();

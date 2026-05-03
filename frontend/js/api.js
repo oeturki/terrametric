@@ -489,6 +489,7 @@ async function fetchSamples() {
     selectTray(0);
     buildGalleryTabs();
     populateGraphSampleSelect(list);
+    if (typeof buildGalleryTimeline === 'function') buildGalleryTimeline();
     if (typeof buildControlPlantSelectFromList === 'function') {
       buildControlPlantSelectFromList(list);
     }
@@ -659,16 +660,26 @@ async function homeHardwareCapture(ev) {
       } catch (_) { /* keep text */ }
       throw new Error(msg || ('HTTP ' + res.status));
     }
-    const blob = await res.blob();
-    const u = URL.createObjectURL(blob);
-    window.open(u, '_blank', 'noopener');
-    fireAlert('ok', 'Camera', 'Picture captured — opened in a new tab.');
-    setTimeout(function () {
-      try { URL.revokeObjectURL(u); } catch (_) { /* ignore */ }
-    }, 120000);
     try {
-      await fetchGallery();
+      await res.blob();
+    } catch (_) { /* ignore body */ }
+    const persisted = typeof res.headers.get === 'function' && res.headers.get('X-Capture-Persisted') === '1';
+    try {
+      if (persisted) {
+        await fetchGallery();
+      }
     } catch (_) { /* noop */ }
+    try {
+      if (persisted && typeof fetchAlerts === 'function') await fetchAlerts();
+    } catch (_) { /* noop */ }
+    if (!persisted) {
+      fireAlert(
+        'warning',
+        'Camera',
+        'Picture taken but not saved — start recording for your sample first, then try again.',
+        8000,
+      );
+    }
   } catch (e) {
     const m = e && e.message ? String(e.message) : String(e);
     fireAlert('danger', 'Camera', m, 8000);
@@ -707,44 +718,34 @@ async function homeHardwareVentilation(ev) {
 }
 
 // ── Camera gallery images ────────────────────
-// Returns: [{ id, sample_qr, timestamp, height_cm, image_url }, …]
+// Metadata only (no thumbnail prefetch). Optional optPlantId → GET ?plant_id= merge.
 
-async function fetchGallery() {
+async function fetchGallery(optPlantId) {
   try {
-    if (typeof galleryPhotos !== 'undefined' && galleryPhotos) {
-      Object.keys(galleryPhotos).forEach(function (key) {
-        (galleryPhotos[key] || []).forEach(function (p) {
-          if (p && p._blobUrl) {
-            try { URL.revokeObjectURL(p._blobUrl); } catch (_) { /* noop */ }
-            p._blobUrl = null;
-          }
-        });
-      });
-    }
-
-    const data = await apiFetch(CONFIG.ENDPOINTS.camera);
+    const qs =
+      typeof optPlantId === 'number' && !isNaN(optPlantId) && optPlantId >= 1
+        ? '?plant_id=' + encodeURIComponent(String(Math.floor(optPlantId)))
+        : '';
+    const data = await apiFetch(CONFIG.ENDPOINTS.camera + qs);
     const photos = Array.isArray(data) ? data : data.images || [];
-    galleryPhotos = {};
-    photos.forEach(function (p) {
-      const key = p.sample_qr || 'unknown';
-      if (!galleryPhotos[key]) galleryPhotos[key] = [];
-      galleryPhotos[key].push(p);
-    });
 
-    for (const qr of Object.keys(galleryPhotos || {})) {
-      const arr = galleryPhotos[qr] || [];
-      for (let j = 0; j < arr.length; j++) {
-        const ph = arr[j];
-        const path = ph.image_url || '';
-        if (!path || !ph.id) continue;
-        var u = API_BASE + (path.indexOf('/') === 0 ? path : '/' + path);
-        try {
-          const res = await authFetch(u);
-          if (!res.ok) continue;
-          const blob = await res.blob();
-          ph._blobUrl = URL.createObjectURL(blob);
-        } catch (_) { /* skip thumbnail */ }
-      }
+    const groupByQr = function (list) {
+      const o = {};
+      list.forEach(function (p) {
+        const key = p.sample_qr || 'unknown';
+        if (!o[key]) o[key] = [];
+        o[key].push(p);
+      });
+      return o;
+    };
+
+    if (qs) {
+      const patch = groupByQr(photos);
+      Object.keys(patch).forEach(function (key) {
+        galleryPhotos[key] = patch[key];
+      });
+    } else {
+      galleryPhotos = groupByQr(photos);
     }
 
     if (typeof buildGalleryTimeline === 'function') buildGalleryTimeline();

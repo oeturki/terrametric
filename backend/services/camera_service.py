@@ -53,7 +53,7 @@ def save_capture(
         telemetry_id=telemetry_id,
         created_at=datetime.now(timezone.utc),
         trigger=trigger,
-        detail=(detail[:250] if detail else None),
+        detail=(detail[:1500] if detail else None),
         storage_path=rel.replace("\\", "/"),
         height_cm=height_cm,
     )

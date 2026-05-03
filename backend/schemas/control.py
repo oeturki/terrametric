@@ -48,6 +48,35 @@ def merge_profile_from_payload(
         "height": _merge_channel(base.get("height", {}), body.height),
         "camera": _merge_channel(base.get("camera", {}), body.camera),
     }
+    out["height"] = _sanitize_height_channel(out["height"])
+    return out
+
+
+def _sanitize_height_channel(h: Dict[str, Any]) -> Dict[str, Any]:
+    """Height is only ``target_cm`` + ``interval``. Strip legacy min/max/warn keys on save."""
+    if not h:
+        return {"target_cm": None, "interval": 1440}
+    tg = h.get("target_cm")
+    if tg is None or tg == "":
+        target_cm: Optional[float] = None
+    else:
+        try:
+            target_cm = float(tg)
+        except (TypeError, ValueError):
+            target_cm = None
+    try:
+        interval = int(h.get("interval") or 1440)
+        if interval < 1:
+            interval = 1440
+    except (TypeError, ValueError):
+        interval = 1440
+    return {"target_cm": target_cm, "interval": interval}
+
+
+def normalize_controls_for_api(d: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a copy so GET /api/control always exposes the current height shape."""
+    out = dict(d)
+    out["height"] = _sanitize_height_channel(out.get("height") or {})
     return out
 
 
@@ -57,7 +86,10 @@ def validate_merged_profile(data: Dict[str, Any]) -> None:
     tmin, tmax = temp.get("min"), temp.get("max")
     if tmin is not None and tmax is not None and float(tmin) >= float(tmax):
         raise ValueError("Invalid temperature range")
-    twl, twh = temp.get("warn_low"), temp.get("warn")
+    twl = temp.get("warn_low")
+    twh = temp.get("warn_high")
+    if twh is None:
+        twh = temp.get("warn")
     if twl is not None and twh is not None:
         try:
             if float(twl) >= float(twh):
@@ -68,7 +100,10 @@ def validate_merged_profile(data: Dict[str, Any]) -> None:
     hmin, hmax = hum.get("min"), hum.get("max")
     if hmin is not None and hmax is not None and float(hmin) >= float(hmax):
         raise ValueError("Invalid humidity range (min must be less than max)")
-    hwl, hwh = hum.get("warn_low"), hum.get("warn")
+    hwl = hum.get("warn_low")
+    hwh = hum.get("warn_high")
+    if hwh is None:
+        hwh = hum.get("warn")
     if hwl is not None and hwh is not None:
         try:
             if float(hwl) >= float(hwh):
@@ -89,10 +124,13 @@ def validate_merged_profile(data: Dict[str, Any]) -> None:
     lmin, lmax = light.get("min"), light.get("max")
     if lmin is not None and lmax is not None and float(lmin) >= float(lmax):
         raise ValueError("Invalid light range (min must be less than max)")
-    lwl, lwh = light.get("warn_low"), light.get("warn")
-    if lwl is not None and lwh is not None:
+    lwl = light.get("warn_low")
+    lw_hi = light.get("warn_high")
+    if lw_hi is None:
+        lw_hi = light.get("warn")
+    if lwl is not None and lw_hi is not None:
         try:
-            if float(lwl) >= float(lwh):
+            if float(lwl) >= float(lw_hi):
                 raise ValueError("Light tolerance low must be less than tolerance high")
         except (TypeError, ValueError):
             pass
@@ -113,13 +151,11 @@ def validate_merged_profile(data: Dict[str, Any]) -> None:
             if wl < 0 or wh > 1:
                 raise ValueError("Motion soft tolerances must be between 0 and 1 (PIR maps to 0/1)")
     height = data.get("height") or {}
-    htmin, htmax = height.get("min"), height.get("max")
-    if htmin is not None and htmax is not None and float(htmin) >= float(htmax):
-        raise ValueError("Invalid height range (min must be less than max)")
-    ywl, ywh = height.get("warn_low"), height.get("warn")
-    if ywl is not None and ywh is not None:
+    tg = height.get("target_cm")
+    if tg is not None:
         try:
-            if float(ywl) >= float(ywh):
-                raise ValueError("Height tolerance low must be less than tolerance high")
-        except (TypeError, ValueError):
-            pass
+            if float(tg) <= 0:
+                raise ValueError("Desired height must be a positive number (cm)")
+        except (TypeError, ValueError) as ex:
+            if isinstance(ex, ValueError) and "Desired height" in str(ex):
+                raise

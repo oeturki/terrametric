@@ -54,6 +54,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Capture-Persisted"],
 )
 
 app.include_router(anomalies.router,  prefix="/api/anomalies",  tags=["Anomaly Detection"])

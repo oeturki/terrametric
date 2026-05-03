@@ -21,6 +21,7 @@ from models.reading import Telemetry
 from models.user import User
 from services import auto_ventilation_service as auto_vent
 from services import camera_service as cam_svc
+from services.capture_alert_service import emit_capture_saved_alert
 from services.pi_camera_client import fetch_pi_camera_jpeg
 from services.pi_ventilation_client import post_ventilation_json
 from services.recording_session_service import get_open_recording_session_for_user
@@ -98,6 +99,7 @@ async def hardware_capture(
             raise HTTPException(status_code=504, detail=msg) from e
         raise HTTPException(status_code=502, detail=msg) from e
     sess = get_open_recording_session_for_user(db, user.id)
+    capture_persisted = False
     if sess is not None and jpeg:
         tr = (
             db.query(Telemetry)
@@ -124,10 +126,21 @@ async def hardware_capture(
                 jpeg_bytes=jpeg,
                 height_cm=h,
             )
+            emit_capture_saved_alert(
+                db,
+                plant_id=sess.plant_id,
+                session_id=sess.id,
+                trigger="manual",
+                detail=None,
+            )
+            capture_persisted = True
         except Exception:
             _log.exception("persist manual camera capture failed")
 
-    return Response(content=jpeg, media_type="image/jpeg")
+    headers = {}
+    if capture_persisted:
+        headers["X-Capture-Persisted"] = "1"
+    return Response(content=jpeg, media_type="image/jpeg", headers=headers)
 
 @router.post("/ventilation")
 async def hardware_ventilation(

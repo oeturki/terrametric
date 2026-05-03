@@ -5,7 +5,7 @@
 
 // ── Update stat cards ────────────────────────
 
-/** Desired min/max, then soft low/high; same for temp, hum, light, height, and PIR (0/1). */
+/** Desired min/max, then tolerance low/high from Control inputs (same for temp, hum, light, PIR). */
 function _bandSubLine(v, minId, maxId, wloId, whiId) {
   if (v == null || (typeof v === 'number' && isNaN(v))) {
     return '—';
@@ -22,7 +22,7 @@ function _bandSubLine(v, minId, maxId, wloId, whiId) {
 }
 
 function _tempSubLine(d) {
-  return _bandSubLine(d.temperature, 'temp-min', 'temp-max', 'warn-temp-lo', 'warn-temp');
+  return _bandSubLine(d.temperature, 'temp-min', 'temp-max', 'warn-temp-low', 'warn-temp-high');
 }
 
 function _bandVisualWarn(v, minId, maxId, wloId, whiId) {
@@ -39,7 +39,7 @@ function _bandVisualWarn(v, minId, maxId, wloId, whiId) {
 }
 
 function _tempVisualWarn(t) {
-  return _bandVisualWarn(t, 'temp-min', 'temp-max', 'warn-temp-lo', 'warn-temp');
+  return _bandVisualWarn(t, 'temp-min', 'temp-max', 'warn-temp-low', 'warn-temp-high');
 }
 
 function updateHomeStats(d) {
@@ -58,8 +58,8 @@ function updateHomeStats(d) {
   setText('home-light', Math.round(d.light)        + ' lux');
 
   setText('home-temp-sub',  _tempSubLine(d));
-  setText('home-hum-sub',   _bandSubLine(d.humidity, 'humid-min', 'humid-max', 'warn-hum-lo', 'warn-hum'));
-  setText('home-light-sub', _bandSubLine(d.light, 'light-min', 'light-max', 'warn-light-lo', 'warn-light'));
+  setText('home-hum-sub',   _bandSubLine(d.humidity, 'humid-min', 'humid-max', 'warn-hum-low', 'warn-hum-high'));
+  setText('home-light-sub', _bandSubLine(d.light, 'light-min', 'light-max', 'warn-light-low', 'warn-light-high'));
 
   const esi = calcESI(d);
   setText('home-esi', esi);
@@ -67,9 +67,21 @@ function updateHomeStats(d) {
   updateESIGauge(esi);
 
   setLiveBadge('tempLive',   d.temperature?.toFixed(1) + '°C',   _tempVisualWarn(d.temperature));
-  setLiveBadge('humLive',    d.humidity?.toFixed(1)    + '%',     _bandVisualWarn(d.humidity, 'humid-min', 'humid-max', 'warn-hum-lo', 'warn-hum'));
-  setLiveBadge('lightLive',  Math.round(d.light)        + ' lux', _bandVisualWarn(d.light, 'light-min', 'light-max', 'warn-light-lo', 'warn-light'));
-  setLiveBadge('heightLive', d.height?.toFixed(1)       + ' cm',  _bandVisualWarn(d.height, 'height-min', 'height-max', 'warn-height-lo', 'warn-height'));
+  setLiveBadge('humLive',    d.humidity?.toFixed(1)    + '%',     _bandVisualWarn(d.humidity, 'humid-min', 'humid-max', 'warn-hum-low', 'warn-hum-high'));
+  setLiveBadge('lightLive',  Math.round(d.light)        + ' lux', _bandVisualWarn(d.light, 'light-min', 'light-max', 'warn-light-low', 'warn-light-high'));
+
+  var hEl = document.getElementById('heightLive');
+  if (hEl) {
+    hEl.textContent = d.height != null && !isNaN(d.height) ? (d.height.toFixed(1) + ' cm') : '—';
+    var tg = NaN;
+    var htEl = document.getElementById('height-target');
+    if (htEl && htEl.value !== '') tg = parseFloat(htEl.value);
+    if (Number.isFinite(tg) && d.height != null && !isNaN(d.height) && d.height >= tg) {
+      hEl.style.color = 'var(--sky)';
+    } else {
+      hEl.style.color = 'var(--olive)';
+    }
+  }
 }
 
 function setLiveBadge(id, text, warn) {
@@ -108,10 +120,24 @@ function updateControlLiveVals(d) {
   const m = d.motion == null ? NaN : (d.motion ? 1 : 0);
 
   setLiveField('ctrl-temp',   d.temperature?.toFixed(1) + ' °C',  _tempVisualWarn(d.temperature));
-  setLiveField('ctrl-hum',    d.humidity?.toFixed(1)    + ' %',   _bandVisualWarn(d.humidity, 'humid-min', 'humid-max', 'warn-hum-lo', 'warn-hum'));
-  setLiveField('ctrl-light',  Math.round(d.light)       + ' lux', _bandVisualWarn(d.light, 'light-min', 'light-max', 'warn-light-lo', 'warn-light'));
-  setLiveField('ctrl-height', d.height?.toFixed(1)      + ' cm',  _bandVisualWarn(d.height, 'height-min', 'height-max', 'warn-height-lo', 'warn-height'));
-  setLiveField('ctrl-motion', d.motion ? '🟡 Detected'  : '🟢 Clear', _bandVisualWarn(m, 'motion-min', 'motion-max', 'warn-motion-lo', 'warn-motion'));
+  setLiveField('ctrl-hum',    d.humidity?.toFixed(1)    + ' %',   _bandVisualWarn(d.humidity, 'humid-min', 'humid-max', 'warn-hum-low', 'warn-hum-high'));
+  setLiveField('ctrl-light',  Math.round(d.light)       + ' lux', _bandVisualWarn(d.light, 'light-min', 'light-max', 'warn-light-low', 'warn-light-high'));
+
+  var cHei = document.getElementById('ctrl-height');
+  if (cHei) {
+    cHei.textContent = d.height != null && !isNaN(d.height) ? (d.height.toFixed(1) + ' cm') : '—';
+    var gx = '';
+    var hte2 = document.getElementById('height-target');
+    if (hte2) gx = hte2.value;
+    var gNum = gx !== '' ? parseFloat(gx) : NaN;
+    var met = Number.isFinite(gNum) && d.height != null && !isNaN(d.height) && d.height >= gNum;
+    cHei.className = 'live-val connected' + (met ? ' height-met' : '');
+  }
+
+  var mMin = parseFloat(document.getElementById('motion-min')?.value);
+  var mMax = parseFloat(document.getElementById('motion-max')?.value);
+  var motionWarn = Number.isFinite(m) && ((!isNaN(mMin) && m < mMin) || (!isNaN(mMax) && m > mMax));
+  setLiveField('ctrl-motion', d.motion ? '🟡 Detected'  : '🟢 Clear', motionWarn);
   setText('ctrl-cam', new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
 }
 
@@ -126,27 +152,32 @@ function setLiveField(id, text, warn) {
 
 function resetDefaults() {
   const d = CONFIG.DEFAULTS;
-  const wlo = document.getElementById('warn-temp-lo');
-  if (wlo) wlo.value = d.temp_warn_lo != null && d.temp_warn_lo !== '' ? d.temp_warn_lo : '';
-  document.getElementById('warn-temp').value   = d.temp_warn;
-  document.getElementById('int-temp').value    = d.temp_int;
-  const hlo = document.getElementById('warn-hum-lo');
-  if (hlo) hlo.value = d.hum_warn_lo != null && d.hum_warn_lo !== '' ? d.hum_warn_lo : '';
-  document.getElementById('warn-hum').value    = d.hum_warn;
-  document.getElementById('int-hum').value     = d.hum_interval;
-  const llo = document.getElementById('warn-light-lo');
-  if (llo) llo.value = d.light_warn_lo != null && d.light_warn_lo !== '' ? d.light_warn_lo : '';
-  document.getElementById('warn-light').value  = d.light_warn;
-  document.getElementById('int-light').value   = d.light_interval;
-  const mlo = document.getElementById('warn-motion-lo');
-  if (mlo) mlo.value = d.motion_warn_lo != null && d.motion_warn_lo !== '' ? d.motion_warn_lo : '';
-  document.getElementById('warn-motion').value = d.motion_warn;
-  document.getElementById('int-motion').value  = d.motion_interval;
-  const ylo = document.getElementById('warn-height-lo');
-  if (ylo) ylo.value = d.height_warn_lo != null && d.height_warn_lo !== '' ? d.height_warn_lo : '';
-  document.getElementById('warn-height').value = d.height_warn;
-  document.getElementById('int-height').value  = d.height_interval;
-  document.getElementById('warn-cam').value    = d.cam_schedule;
-  document.getElementById('int-cam').value     = d.cam_interval;
-  fireAlert('info', 'Defaults Restored', 'All thresholds reset to defaults. Hit Save to apply.', 5000);
+  const wtLo = document.getElementById('warn-temp-low');
+  if (wtLo) wtLo.value = d.temp_warn_low != null ? d.temp_warn_low : '';
+  const wtHi = document.getElementById('warn-temp-high');
+  if (wtHi) wtHi.value = d.temp_warn_high != null ? d.temp_warn_high : '';
+  document.getElementById('int-temp').value = d.temp_int;
+
+  const whLo = document.getElementById('warn-hum-low');
+  if (whLo) whLo.value = d.hum_warn_low != null ? d.hum_warn_low : '';
+  const whHi = document.getElementById('warn-hum-high');
+  if (whHi) whHi.value = d.hum_warn_high != null ? d.hum_warn_high : '';
+  document.getElementById('int-hum').value = d.hum_interval;
+
+  const wlLo = document.getElementById('warn-light-low');
+  if (wlLo) wlLo.value = d.light_warn_low != null ? d.light_warn_low : '';
+  const wlHi = document.getElementById('warn-light-high');
+  if (wlHi) wlHi.value = d.light_warn_high != null ? d.light_warn_high : '';
+  document.getElementById('int-light').value = d.light_interval;
+
+  document.getElementById('int-motion').value = d.motion_interval;
+
+  const htg = document.getElementById('height-target');
+  if (htg) htg.value = '';
+  document.getElementById('int-height').value = d.height_interval;
+
+  const camInt = document.getElementById('int-cam');
+  if (camInt && camInt.tagName === 'SELECT') camInt.value = '1h';
+
+  fireAlert('info', 'Defaults Restored', 'Locally reset to baseline values. Hit Save on Control Variables to apply on the server.', 5000);
 }

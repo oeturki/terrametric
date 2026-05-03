@@ -5,9 +5,7 @@ Rules (documented):
 - For each channel with numeric bounds: breach if value is not None and
   (value < min or value > max) when min/max are set as numbers.
 - PIR: movement is cast to 0.0/1.0 and compared to motion.min / motion.max.
-- Height: use ``plant_height`` if set, else ``distance`` (ultrasonic cm).
-- "Tolerance" (warn) fields are not used for min/max band checks in v1; only [min, max] define the safe band.
-  (warn can be used later for soft warnings; omitted here for clarity.)
+- Height milestones (``target_cm``) are handled separately (gallery capture): no tolerance alerts on height here.
 """
 
 from __future__ import annotations
@@ -40,6 +38,13 @@ COOLDOWN_SEC = 60.0
 
 def _get_band(profile: Dict[str, Any], key: str) -> Dict[str, Any]:
     return (profile or {}).get(key) or {}
+
+
+def _soft_hi(band: Dict[str, Any]):
+    hi = band.get("warn_high")
+    if hi is None:
+        hi = band.get("warn")
+    return hi
 
 
 def _in_numeric_band(value: float, lo: Any, hi: Any) -> bool:
@@ -116,13 +121,13 @@ def evaluate_telemetry_row(
     t = row.temperature
     if t is not None:
         b = _get_band(d, "temperature")
-        ok = _in_numeric_band(float(t), b.get("warn_low"), b.get("warn_high"))
+        ok = _in_numeric_band(float(t), b.get("warn_low"), _soft_hi(b))
         _emit(
             "temperature",
             not ok,
             f"Temperature out of range for {cap}",
             f"Sample {cap}. Reading {t:.1f} °C is outside the tolerance for this sample "
-            f"({b.get('warn_low', '?')}-{b.get('warn_high', '?')}) °C. "
+            f"({b.get('warn_low', '?')}-{_soft_hi(b) if _soft_hi(b) is not None else '?'}) °C. "
             f"If this is unexpected, check Control Variables and that recording / TM_BRIDGE_PLANT_ID matches this id.",
         )
 
@@ -130,26 +135,26 @@ def evaluate_telemetry_row(
     h = row.humidity
     if h is not None:
         b = _get_band(d, "humidity")
-        ok = _in_numeric_band(float(h), b.get("warn_low"), b.get("warn_high"))
+        ok = _in_numeric_band(float(h), b.get("warn_low"), _soft_hi(b))
         _emit(
             "humidity",
             not ok,
             f"Humidity out of range for {cap}",
             f"Sample {cap}. Reading {h:.1f}% is outside the tolerance "
-            f"({b.get('warn_low', '?')}-{b.get('warn_high', '?')}).",
+            f"({b.get('warn_low', '?')}-{_soft_hi(b) if _soft_hi(b) is not None else '?'}).",
         )
 
     # --- Light (lux) ---
     light = row.light
     if light is not None:
         b = _get_band(d, "light")
-        ok = _in_numeric_band(float(light), b.get("warn_low"), b.get("warn_high"))
+        ok = _in_numeric_band(float(light), b.get("warn_low"), _soft_hi(b))
         _emit(
             "light",
             not ok,
             f"Light out of range for {cap}",
             f"Sample {cap}. Reading {light:.0f} lux is outside the tolerance "
-            f"({b.get('warn_low', '?')}-{b.get('warn_high', '?')}).",
+            f"({b.get('warn_low', '?')}-{_soft_hi(b) if _soft_hi(b) is not None else '?'}).",
         )
 
     # --- Motion: bool -> 0/1 ---
@@ -163,19 +168,6 @@ def evaluate_telemetry_row(
             f"Motion signal out of range for {cap}",
             f"Sample {cap}. PIR value maps to {v:.0f}, outside the tolerance "
             f"({b.get('min', '?')}-{b.get('max', '?')}).",
-        )
-
-    # --- Height (cm): prefer plant_height, then distance ---
-    hgt = row.plant_height if row.plant_height is not None else row.distance
-    if hgt is not None:
-        b = _get_band(d, "height")
-        ok = _in_numeric_band(float(hgt), b.get("warn_low"), b.get("warn_high"))
-        _emit(
-            "height",
-            not ok,
-            f"Height / distance out of range for {cap}",
-            f"Sample {cap}. Value {hgt:.1f} cm is outside the tolerance "
-            f"({b.get('warn_low', '?')}-{b.get('warn_high', '?')}).",
         )
 
     return new_alerts

@@ -34,13 +34,9 @@ const CONFIG = {
     motion_min: 0,
     motion_max: 1,
     motion_interval: 10, // seconds
-    height_min: 500,
-    height_max: 10000,
-    height_warn_high: 11000,   // cm
-    height_warn_low: 100,
-    height_interval: 120,   // seconds
-    cam_on_motion: 0,
-    cam_on_alert: 0,
+    height_interval: 120,   // seconds (telemetry chart refresh cue)
+    cam_on_motion: 1,
+    cam_on_alert: 1,
     cam_interval: 60,
   },
 
@@ -149,7 +145,13 @@ async function fetchControls() {
       if (loEl) {
         loEl.value = wlo != null && wlo !== "" ? wlo : "";
       }
-      document.getElementById("warn-temp").value = data.temperature.warn ?? "";
+      const wHi = data.temperature.warn_high != null && data.temperature.warn_high !== ""
+        ? data.temperature.warn_high
+        : data.temperature.warn;
+      const hiEl = document.getElementById("warn-temp-high");
+      if (hiEl) {
+        hiEl.value = wHi != null && wHi !== "" ? wHi : "";
+      }
       document.getElementById("int-temp").value = data.temperature.interval ?? "";
     }
 
@@ -162,7 +164,13 @@ async function fetchControls() {
       if (humLo) {
         humLo.value = hwl != null && hwl !== "" ? hwl : "";
       }
-      document.getElementById("warn-hum").value = data.humidity.warn ?? "";
+      const hwHi = data.humidity.warn_high != null && data.humidity.warn_high !== ""
+        ? data.humidity.warn_high
+        : data.humidity.warn;
+      const humHi = document.getElementById("warn-hum-high");
+      if (humHi) {
+        humHi.value = hwHi != null && hwHi !== "" ? hwHi : "";
+      }
       document.getElementById("int-hum").value = data.humidity.interval ?? "";
     }
 
@@ -175,7 +183,13 @@ async function fetchControls() {
       if (lLo) {
         lLo.value = lwl != null && lwl !== "" ? lwl : "";
       }
-      document.getElementById("warn-light").value = data.light.warn ?? "";
+      const lwHi = data.light.warn_high != null && data.light.warn_high !== ""
+        ? data.light.warn_high
+        : data.light.warn;
+      const lightHi = document.getElementById("warn-light-high");
+      if (lightHi) {
+        lightHi.value = lwHi != null && lwHi !== "" ? lwHi : "";
+      }
       document.getElementById("int-light").value = data.light.interval ?? "";
     }
 
@@ -186,16 +200,13 @@ async function fetchControls() {
       document.getElementById("int-motion").value = data.motion.interval ?? "";
     }
 
-    // Height
+    // Height — optional goal only (stored as target_cm)
     if (data.height){
-      document.getElementById("height-min").value = data.height.min ?? "";
-      document.getElementById("height-max").value = data.height.max ?? "";
-      const ywl = data.height.warn_low;
-      const hLo = document.getElementById("warn-height-low");
-      if (hLo) {
-        hLo.value = ywl != null && ywl !== "" ? ywl : "";
+      const htEl = document.getElementById("height-target");
+      if (htEl) {
+        const tg = data.height.target_cm;
+        htEl.value = tg != null && tg !== "" ? tg : "";
       }
-      document.getElementById("warn-height").value = data.height.warn ?? "";
       document.getElementById("int-height").value = data.height.interval ?? "";
     }
 
@@ -272,10 +283,7 @@ function getControlData() {
     },
 
     height: {
-      min: parseFloat(document.getElementById("height-min").value),
-      max: parseFloat(document.getElementById("height-max").value),
-      warn_low: _optControlFloat("warn-height-low"),
-      warn_high: _optControlFloat("warn-height-high"),
+      target_cm: _optControlFloat("height-target"),
       interval: parseInt(document.getElementById("int-height").value, 10)
     },
 
@@ -405,12 +413,9 @@ document.addEventListener("DOMContentLoaded", async function () {
   attachRangeValidation('temp-min', 'temp-max');
   attachRangeValidation('humid-min', 'humid-max');
   attachRangeValidation('light-min', 'light-max');
-  attachRangeValidation('height-min', 'height-max');
   attachRangeValidation('warn-temp-low', 'warn-temp-high');
   attachRangeValidation('warn-hum-low', 'warn-hum-high');
   attachRangeValidation('warn-light-low', 'warn-light-high');
-  // attachRangeValidation('warn-motion-low', 'warn-motion'); #motion is either true or false, no threshold range
-  attachRangeValidation('warn-height-low', 'warn-height-high');
 });
 
 function validateControls(data) {
@@ -430,12 +435,14 @@ function validateControls(data) {
     return false;
   }
 
-  if (data.temperature.warn != null && !isNaN(data.temperature.warn) && data.temperature.warn > data.temperature.max) {
+  const tWl = data.temperature.warn_low;
+  const tWh = data.temperature.warn_high != null ? data.temperature.warn_high : data.temperature.warn;
+  if (tWh != null && !isNaN(tWh) && tWh > data.temperature.max) {
     alert("Temperature tolerance (high) cannot exceed desired max");
     return false;
   }
-  if (data.temperature.warn_low != null && !isNaN(data.temperature.warn_low) && data.temperature.warn != null
-      && !isNaN(data.temperature.warn) && data.temperature.warn_low >= data.temperature.warn) {
+  if (tWl != null && !isNaN(tWl) && tWh != null
+      && !isNaN(tWh) && tWl >= tWh) {
     alert("Temperature tolerance low must be less than tolerance high");
     return false;
   }
@@ -456,7 +463,7 @@ function validateControls(data) {
     return false;
   }
 
-  const hW = data.humidity.warn;
+  const hW = data.humidity.warn_high != null ? data.humidity.warn_high : data.humidity.warn;
   const hWl = data.humidity.warn_low;
   if (hW != null && !isNaN(hW) && (hW > 100 || hW < 0)) {
     alert("Humidity tolerance (high) must be between 0 and 100%");
@@ -482,7 +489,7 @@ function validateControls(data) {
     return false;
   }
 
-  const lW = data.light.warn;
+  const lW = data.light.warn_high != null ? data.light.warn_high : data.light.warn;
   const lWl = data.light.warn_low;
   if (lW != null && !isNaN(lW) && lW < 0) {
     alert("Light tolerance (high) cannot be negative");
@@ -506,7 +513,7 @@ function validateControls(data) {
     alert("Motion min must be less than max");
     return false;
   }
-  const mW = data.motion.warn;
+  const mW = data.motion.warn_high != null ? data.motion.warn_high : data.motion.warn;
   const mWl = data.motion.warn_low;
   if (mWl != null && !isNaN(mWl) && mW != null && !isNaN(mW) && mWl >= mW) {
     alert("Motion tolerance low must be less than tolerance high");
@@ -521,20 +528,13 @@ function validateControls(data) {
     return false;
   }
 
-  // ── Height ──
-  if (isNaN(data.height.min) || isNaN(data.height.max)) {
-    alert("Height values must be numbers");
+  // ── Height (optional desired height milestone) ──
+  if (data.height.target_cm != null && !isNaN(data.height.target_cm) && data.height.target_cm <= 0) {
+    alert("Desired height must be a positive number or left empty");
     return false;
   }
-
-  if (data.height.min >= data.height.max) {
-    alert("Height min must be less than max");
-    return false;
-  }
-  const yW = data.height.warn;
-  const yWl = data.height.warn_low;
-  if (yWl != null && !isNaN(yWl) && yW != null && !isNaN(yW) && yWl >= yW) {
-    alert("Height tolerance low must be less than tolerance high");
+  if (isNaN(data.height.interval) || data.height.interval <= 0) {
+    alert("Height read interval must be a positive number");
     return false;
   }
 

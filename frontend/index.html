@@ -435,7 +435,7 @@
         Live readings update automatically. Edit thresholds and intervals, then hit Save.
         Server threshold alerts use the sample that <strong>receives the reading</strong> (recording session or <code>TM_BRIDGE_PLANT_ID</code>); if that id differs from the sample selected here, alert bands will not match this form.
         <strong>Ventilation (auto):</strong> during recording only, the Pi is driven from <strong>Desired</strong> min/max on temperature &amp; humidity.</span>
-      <span style="font-size:10px;color:var(--bark-mid);display:block;margin-top:6px;line-height:1.45;"><strong>Tolerance</strong> (warn low/high per channel) feeds alerts / chart overlays only — changing it does not start or stop automatic ventilation. While you are <strong>recording</strong>, hitting <strong>Save</strong> here re-checks desired bands against the latest reading and can turn ventilation off without waiting for the next packet.</span>
+      <span style="font-size:10px;color:var(--bark-mid);display:block;margin-top:6px;line-height:1.45;"><strong>Tolerance</strong> (warn low/high on temperature, humidity, and light only) feeds threshold alerts / chart overlays — not height. Changing tolerance does not start or stop automatic ventilation. While you are <strong>recording</strong>, hitting <strong>Save</strong> here re-checks desired bands against the latest reading and can turn ventilation off without waiting for the next packet.</span>
     </div>
     <div class="sensor-grid">
       <div class="sensor-card">
@@ -463,15 +463,20 @@
       </div>
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">📏</div><div class="sensor-name">Height (Ultrasonic)</div></div>
-        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="height-min" value="500" min="0" max="20000"><span class="range-sep">to</span><input type="number" step="0.1" id="height-max" value="10000" min="0" max="100"><span class="unit">cm</span></div></div>
-        <div class="field-row"><span class="field-label">Tolerance Thresholds</span><div class="range-inputs"><input class="field-input" type="number" step="0.1" id="warn-height-low" value="100" min="0" max="20000" placeholder="low cm" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"><span class="range-sep">to</span><input class="field-input" type="number" step="0.1" id="warn-height-high" value="11000" min="0" max="20000" placeholder="high cm" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div></div>
+        <div class="field-row"><span class="field-label">Desired height</span><div class="range-inputs" style="flex:1;"><input type="number" step="0.1" id="height-target" value="" min="0" max="20000" placeholder="e.g. 25 cm (optional)" title="Leave empty for no milestone photo" style="flex:1;max-width:none;" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"><span class="unit">cm</span></div></div>
+        <div style="font-size:10px;color:var(--bark-mid);line-height:1.45;margin:-4px 0 10px;padding-left:2px;">When set, one automatic photo per recording session is saved to the Gallery the first time the measured height reaches or exceeds this value. This does <strong>not</strong> use <strong>Capture on Warning</strong> below. No min/max or tolerance band for height.</div>
         <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-height" value="120" placeholder="seconds"></div>
       </div>
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">📷</div><div class="sensor-name">Camera</div></div>
         <div class="field-row"><span class="field-label">Capture on Motion</span><label class="switch"><input type="checkbox" id="cam-on-motion"><span class="slider"></span></label></div>
         <div class="field-row"><span class="field-label">Capture on Warning</span><label class="switch"><input type="checkbox" id="cam-on-alert"><span class="slider"></span></label></div>
-        <div style="font-size:10px;color:var(--bark-mid);line-height:1.45;margin:-4px 0 10px;">Warning = <strong>desired</strong> min/max breach (temp · humidity · light), while recording. Motion = PIR low→high edges (cooldown between shots).</div>
+        <div style="font-size:10px;color:var(--bark-mid);line-height:1.45;margin:-4px 0 10px;">
+          Turn <strong>off</strong> <em>Capture on Motion</em> only if you do not want a Gallery screenshot when motion is detected (PIR low→high; rate-limited; Pi must be reachable). On by default.
+          <strong>Desired min/max</strong> on temperature, humidity, and light: Gallery snapshots save automatically when a reading leaves that band (like the height milestone; Pi must be reachable). 
+          <strong>Capture on Warning</strong> additionally enables snapshots when readings leave <strong>tolerance</strong> (soft warn) bands — those can fire even while still inside desired min/max.
+          Samples saved earlier may still have Capture on Warning off until you <strong>Save</strong> or <strong>Reset to Defaults</strong>.
+        </div>
         <div class="field-row"><span class="field-label">Read Interval</span>
           <select class="field-input" id="int-cam">
             <option value="1h">1 hour</option>
