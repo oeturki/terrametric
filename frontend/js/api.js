@@ -39,6 +39,65 @@ async function apiPostNoBody(path) {
   return res.json();
 }
 
+/** POST `/api/alerts/{id}/ack` — persists dismissal for one alert row. */
+async function acknowledgeAlert(alertId) {
+  const id = Number(alertId);
+  if (!Number.isFinite(id) || id < 1) throw new Error('Invalid alert id');
+  const path =
+    typeof CONFIG.ENDPOINTS.alertsAck === 'function'
+      ? CONFIG.ENDPOINTS.alertsAck(id)
+      : '/api/alerts/' + id + '/ack';
+  return apiPostNoBody(path);
+}
+
+/** POST `/api/alerts/ack-batch` with `{ ids: number[] }`. Falls back to per-id `/ack` if batch is unavailable. */
+async function acknowledgeAlertsBatch(ids) {
+  const clean = [
+    ...new Set(
+      (ids || [])
+        .map(function (x) {
+          return Number(x);
+        })
+        .filter(function (n) {
+          return Number.isFinite(n) && n >= 1;
+        })
+    ),
+  ];
+  if (!clean.length) throw new Error('No alert ids');
+
+  async function sequentialAckFallback() {
+    const settled = await Promise.allSettled(clean.map(function (id) {
+      return acknowledgeAlert(id);
+    }));
+    var ok = 0;
+    settled.forEach(function (r) {
+      if (r.status === 'fulfilled') ok += 1;
+    });
+    return { status: 'ok', acknowledged_count: ok, requested: clean.length };
+  }
+
+  var batchPath = '/api/alerts/ack-batch';
+  try {
+    if (CONFIG.ENDPOINTS && CONFIG.ENDPOINTS.alertsAckBatch) {
+      batchPath = CONFIG.ENDPOINTS.alertsAckBatch;
+    }
+  } catch (_) { /* CONFIG missing in odd embed contexts */ }
+
+  const res = await authFetch(API_BASE + batchPath, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ ids: clean }),
+  });
+  if (res.ok) return res.json();
+  if (res.status === 404 || res.status === 405) return sequentialAckFallback();
+  var detail = '';
+  try {
+    detail = await res.text();
+    if (detail && detail.length > 220) detail = detail.slice(0, 220) + '…';
+  } catch (_) { /* ignore */ }
+  throw new Error('HTTP ' + res.status + (detail ? ' — ' + detail : ''));
+}
+
 async function apiPut(path, body) {
   const res = await authFetch(API_BASE + path, {
     method: 'PUT',
@@ -471,8 +530,12 @@ const _SEEN_MAX = 400;
 async function fetchAlerts() {
   try {
     const data = await apiFetch(CONFIG.ENDPOINTS.alerts);
-    const alerts = Array.isArray(data) ? data : data.alerts || [];
-    // Toasts for newly seen ids only; then bind home + bell from server (single source of truth).
+    const alertsRaw = Array.isArray(data) ? data : data.alerts || [];
+    if (typeof registerLastServerAlertsSnapshot === 'function') {
+      registerLastServerAlertsSnapshot(alertsRaw);
+    }
+    const alerts = alertsRaw;
+    // Toasts only for alerts we still show — and only once per numeric id until tab reload clears _seenAlertIds.
     alerts.forEach(a => {
       if (a.id != null) {
         if (_seenAlertIds.has(a.id)) return;

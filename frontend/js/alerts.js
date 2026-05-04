@@ -37,21 +37,10 @@ function fireAlert(sev, title, msg, dur = 6000) {
     b.classList.add('has-alerts');
   });
 
-  const feed = document.getElementById('alertFeed');
-  if (feed) {
-    const item = document.createElement('div');
-    item.className = 'feed-item ' + sev;
-    item.innerHTML = `
-      <div class="feed-icon">${SEV[sev].icon}</div>
-      <div>
-        <div class="feed-title">${title}</div>
-        <div class="feed-time">${ts}${msg ? ' — ' + msg : ''}</div>
-      </div>`;
-    feed.prepend(item);
-    while (feed.children.length > 4) feed.lastChild.remove();
-    feed.querySelector('[style="font-size:10px;color:var(--bark-mid);padding:8px 0;"]')?.remove();
-  }
+  // Home #alertFeed shows server alerts ONLY (renderHomeAlertFeedFromServer). Never mirror toasts here
+  // or Dismiss/filter logic looks broken — fireAlert runs for unrelated UI feedback too.
 }
+
 
 // ── Toast notification ───────────────────────
 
@@ -100,6 +89,7 @@ function dismissBanner() {
 
 function toggleDD() {
   const dd = document.getElementById('alertDD');
+  if (!dd) return;
   ddOpen = !ddOpen;
   dd.classList.toggle('open', ddOpen);
   if (ddOpen) {
@@ -112,8 +102,16 @@ function toggleDD() {
 }
 
 document.addEventListener('click', e => {
-  if (ddOpen && !e.target.closest('.alert-dropdown') && !e.target.closest('.alert-bell-btn')) {
-    document.getElementById('alertDD').classList.remove('open');
+  if (!ddOpen) return;
+  const dd = document.getElementById('alertDD');
+  if (!dd) {
+    ddOpen = false;
+    return;
+  }
+  const t = e.target;
+  if (!(t instanceof Element)) return;
+  if (!t.closest('.alert-dropdown') && !t.closest('.alert-bell-btn')) {
+    dd.classList.remove('open');
     ddOpen = false;
   }
 });
@@ -126,8 +124,138 @@ function updateBellCount() {
   });
 }
 
+let _lastServerAlertsSnapshot = [];
+
+function registerLastServerAlertsSnapshot(alerts) {
+  _lastServerAlertsSnapshot = Array.isArray(alerts) ? alerts.slice() : [];
+}
+
+/** Ids rendered in Recent Alerts (#alertFeed); backup if snapshot lags fetch/render. */
+function collectAlertIdsFromHomeFeed() {
+  const feed = document.getElementById('alertFeed');
+  if (!feed) return [];
+  const out = [];
+  feed.querySelectorAll('.feed-item[data-alert-id]').forEach(function (el) {
+    const n = Number(el.getAttribute('data-alert-id'));
+    if (Number.isFinite(n) && n >= 1) out.push(n);
+  });
+  return out;
+}
+
+async function refreshHomeServerAlerts() {
+  if (typeof fetchAlerts === 'function') await fetchAlerts();
+}
+
+/** Dismiss: POST batch ack for snapshot ids, then re-fetch `/api/alerts/active`. */
+async function dismissHomeRecentServerAlerts() {
+  const tsFmt = () =>
+    new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  // Sync snapshot from server first (fetchAlerts swallows errors; DOM ids still help if stale).
+  if (typeof fetchAlerts === 'function') await fetchAlerts();
+
+  const fromDom = collectAlertIdsFromHomeFeed();
+  const fromSnap = _lastServerAlertsSnapshot.map(function (a) {
+    return a && a.id != null ? Number(a.id) : NaN;
+  }).filter(function (n) {
+    return Number.isFinite(n) && n >= 1;
+  });
+  const ids = [...new Set(fromSnap.concat(fromDom))];
+
+  if (!ids.length) {
+    showToast(
+      {
+        sev: 'info',
+        title: 'Nothing to dismiss',
+        msg: 'No active alerts to acknowledge (empty list — try Refresh, or ensure you are signed in).',
+        ts: tsFmt(),
+        id: Date.now(),
+      },
+      3200
+    );
+    return;
+  }
+
+  const dismissBtn = document.getElementById('btnDismissHomeAlerts');
+  if (dismissBtn) dismissBtn.disabled = true;
+
+  try {
+    var body;
+    if (typeof acknowledgeAlertsBatch === 'function') {
+      body = await acknowledgeAlertsBatch(ids);
+    } else if (typeof acknowledgeAlert === 'function') {
+      const settled = await Promise.allSettled(
+        ids.map(function (id) {
+          return acknowledgeAlert(id);
+        })
+      );
+      const ok = settled.filter(function (r) {
+        return r.status === 'fulfilled';
+      }).length;
+      body = { acknowledged_count: ok, requested: ids.length };
+    } else {
+      throw new Error('Alert API helpers not loaded (api.js)');
+    }
+    dismissBanner();
+    if (typeof fetchAlerts === 'function') await fetchAlerts();
+
+    const acked = body && body.acknowledged_count != null ? Number(body.acknowledged_count) : 0;
+    const req = body && body.requested != null ? Number(body.requested) : ids.length;
+
+    if (acked >= req) {
+      showToast(
+        {
+          sev: 'ok',
+          title: 'Alerts dismissed',
+          msg: 'Acknowledged ' + acked + ' alert(s) on the server.',
+          ts: tsFmt(),
+          id: Date.now(),
+        },
+        3200
+      );
+    } else if (acked > 0) {
+      showToast(
+        {
+          sev: 'warning',
+          title: 'Partially dismissed',
+          msg:
+            'Acknowledged ' + acked + ' of ' + ids.length + '; the rest were already cleared or not found.',
+          ts: tsFmt(),
+          id: Date.now(),
+        },
+        4200
+      );
+    } else {
+      showToast(
+        {
+          sev: 'info',
+          title: 'No changes',
+          msg: 'The server did not acknowledge any rows (they may already be cleared).',
+          ts: tsFmt(),
+          id: Date.now(),
+        },
+        3400
+      );
+    }
+  } catch (e) {
+    const m = e && e.message ? String(e.message) : String(e);
+    showToast(
+      {
+        sev: 'danger',
+        title: 'Dismiss failed',
+        msg: m,
+        ts: tsFmt(),
+        id: Date.now(),
+      },
+      6000
+    );
+  } finally {
+    if (dismissBtn) dismissBtn.disabled = false;
+  }
+}
+
 /**
- * Home page "Recent Alerts" — always show latest server state (not gated by toast deduplication).
+ * Home page Recent Alerts — mirrors active server alerts from `/api/alerts/active`.
  */
 function renderHomeAlertFeedFromServer(alerts) {
   const feed = document.getElementById('alertFeed');
@@ -144,6 +272,9 @@ function renderHomeAlertFeedFromServer(alerts) {
     const sev = a.severity === 'danger' ? 'danger' : (a.severity === 'info' ? 'info' : 'warning');
     const item = document.createElement('div');
     item.className = 'feed-item ' + sev;
+    if (a.id != null && a.id !== '' && Number.isFinite(Number(a.id)) && Number(a.id) >= 1) {
+      item.setAttribute('data-alert-id', String(Math.floor(Number(a.id))));
+    }
     const ts = a.timestamp
       ? new Date(a.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
       : '';
@@ -186,7 +317,11 @@ function syncServerAlertsToDropdown(alerts) {
 function renderAlertLog() {
   const log = document.getElementById('alertLog');
   const empty = document.getElementById('logEmpty');
-  if (!alertLog.length) { empty.style.display = 'block'; return; }
+  if (!log || !empty) return;
+  if (!alertLog.length) {
+    empty.style.display = 'block';
+    return;
+  }
   empty.style.display = 'none';
   log.querySelectorAll('.log-item').forEach(e => e.remove());
   alertLog.slice(0, 30).forEach(e => {
@@ -209,7 +344,8 @@ function clearAlerts() {
   renderAlertLog();
   updateBellCount();
   dismissBanner();
-  document.getElementById('logEmpty').style.display = 'block';
+  const le = document.getElementById('logEmpty');
+  if (le) le.style.display = 'block';
 }
 
 // ── Destructive-action confirm modal ─────────────
@@ -338,3 +474,7 @@ function confirmModal(opts) {
     }
   });
 }
+
+
+window.dismissHomeRecentServerAlerts = dismissHomeRecentServerAlerts;
+window.refreshHomeServerAlerts = refreshHomeServerAlerts;

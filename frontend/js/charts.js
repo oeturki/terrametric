@@ -22,6 +22,8 @@ const READING_FIELD = { temp: 'temperature', hum: 'humidity', light: 'light', he
 
 /** Warn when raw bar charts exceed this point count across any card */
 const GRAPH_BAR_DENSITY_HINT_AFTER = 80;
+/** Fixed px width — linear-time bar charts shrink to hairlines under flex mode with many buckets */
+const GRAPH_BAR_THICKNESS_PX = 14;
 const ZOOM_X_MIN_MS = 60 * 1000;
 
 const DEFAULT_GRAPH_VIZ = 'smooth_filled';
@@ -681,6 +683,9 @@ function _renderFourSensorCharts(labels, datasetsY) {
         responsive: true,
         animation: { duration: 250 },
         interaction: { mode: interactionMode, intersect: false, axis: 'x' },
+        ...(display === 'bar'
+          ? { datasets: { bar: { barThickness: GRAPH_BAR_THICKNESS_PX } } }
+          : {}),
         plugins: {
           legend: { display: built.datasets.length > 1 },
           tooltip: {
@@ -802,6 +807,12 @@ function onGraphMovingAvgToggle() {
 function resetAllZoom() {
   Object.keys(charts).forEach(k => {
     const c = charts[k];
+    if (k === 'anomSim' && c && typeof c === 'object' && !Array.isArray(c)) {
+      Object.values(c).forEach(ch => {
+        if (ch && typeof ch.resetZoom === 'function') ch.resetZoom();
+      });
+      return;
+    }
     if (c && typeof c.resetZoom === 'function') c.resetZoom();
   });
 }

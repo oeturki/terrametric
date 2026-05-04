@@ -47,7 +47,13 @@ const CONFIG = {
     health:    '/health',
     latest:    '/api/telemetry/latest',
     telemetry: '/api/telemetry/timeseries',
-    alerts:    '/api/alerts/active',
+    alerts:         '/api/alerts/active',
+    /** POST with JSON `{}`. Use as `CONFIG.ENDPOINTS.alertsAck(alertId)`. */
+    alertsAck: function (alertId) {
+      return '/api/alerts/' + encodeURIComponent(String(alertId)) + '/ack';
+    },
+    /** POST JSON body `{ ids: number[] }` — marks alerts acknowledged (server-backed dismiss). */
+    alertsAckBatch: '/api/alerts/ack-batch',
     anomalies: '/api/anomalies',
     mlClassifyWindow: '/api/ml/classify/window',
     plants:    '/api/plants',

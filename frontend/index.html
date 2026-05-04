@@ -127,7 +127,13 @@
             <div class="esi-status" id="esiStatus" style="color:var(--bark-mid)">Awaiting data…</div>
           </div>
           <div style="margin-top:16px;">
-            <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;">Recent Alerts</div>
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+              <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.08em;">Recent Alerts</div>
+              <div style="display:flex;gap:6px;flex-shrink:0;">
+                <button type="button" id="btnDismissHomeAlerts" class="btn btn-ghost" style="font-size:9px;padding:3px 8px;line-height:1.2;" title="Acknowledge current server alerts (saved on the server; all devices)" onclick="event.preventDefault(); void window.dismissHomeRecentServerAlerts();">Dismiss</button>
+                <button type="button" id="btnRefreshHomeAlerts" class="btn btn-ghost" style="font-size:9px;padding:3px 8px;line-height:1.2;" title="Re-fetch active alerts from the server" onclick="event.preventDefault(); void window.refreshHomeServerAlerts();">Refresh</button>
+              </div>
+            </div>
             <div style="font-size:9px;color:var(--bark-mid);line-height:1.35;margin-bottom:8px;max-width:220px;">Persisted server alerts (text is fixed at breach time, not a live re-check of your current Control form).</div>
             <div id="alertFeed"><div style="font-size:10px;color:var(--bark-mid);padding:8px 0;">No alerts yet</div></div>
           </div>
@@ -423,9 +429,10 @@
           <div class="card-header anom-card-head">
             <span class="card-title">Per-sensor time series</span>
             <div class="anom-card-head__tools">
+              <button type="button" class="btn btn-ghost" style="font-size:10px;padding:4px 10px;" onclick="resetAllZoom()" title="Reset zoom/pan on every chart (Graphs + Anomalies series)">Reset zoom</button>
               <button type="button" class="btn btn-ghost" style="font-size:10px;padding:4px 10px;" onclick="reprocessAnomalyWindow()" title="Replay rows in this window through detectors (same sample and hours as the filters above)">Reprocess window</button>
               <label class="anom-check-label">
-                <input type="checkbox" id="anomShowMarkers" checked onchange="renderAnomCharts()"> Event markers
+                <input type="checkbox" id="anomShowMarkers" checked onchange="refreshAnomalyTabCharts(true)"> Event markers
               </label>
               <div id="anomSensorPills" class="anom-sensor-pills"></div>
             </div>

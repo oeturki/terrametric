@@ -6,9 +6,10 @@ Scoped to the authenticated user's plants unless ``plant_id`` is set (must be ow
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Set
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -59,6 +60,55 @@ def get_active_alerts(
         q = q.filter(Alert.plant_id == plant_id)
     rows = q.order_by(Alert.created_at.desc()).limit(limit).all()
     return [_alert_to_ui(a) for a in rows]
+
+
+class AckAlertsBatchBody(BaseModel):
+    ids: List[Any] = Field(default_factory=list, max_length=500)
+
+
+def _positive_alert_ids(raw: List[Any]) -> Set[int]:
+    """Coerce alert ids after JSON parsing (avoid relying on isinstance(..., int) only)."""
+    out: Set[int] = set()
+    for x in raw:
+        try:
+            n = int(x)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            out.add(n)
+    return out
+
+
+@router.post("/ack-batch")
+def acknowledge_alerts_batch(
+    body: AckAlertsBatchBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Mark many alerts acknowledged in one transaction. Only alerts for plants owned by
+    the user are updated; ids that are missing, foreign, or already acknowledged count
+    as no-ops without error.
+    """
+    my_ids = [r[0] for r in db.query(Plant.id).filter(Plant.owner_id == user.id).all()]
+    if not my_ids:
+        return {"status": "ok", "acknowledged_count": 0, "requested": 0}
+    id_set = _positive_alert_ids(list(body.ids))
+    if not id_set:
+        return {"status": "ok", "acknowledged_count": 0, "requested": 0}
+    rows = (
+        db.query(Alert)
+        .filter(
+            Alert.id.in_(id_set),
+            Alert.plant_id.in_(my_ids),
+            Alert.acknowledged.is_(False),
+        )
+        .all()
+    )
+    for a in rows:
+        a.acknowledged = True
+    db.commit()
+    return {"status": "ok", "acknowledged_count": len(rows), "requested": len(id_set)}
 
 
 @router.post("/{alert_id}/ack")

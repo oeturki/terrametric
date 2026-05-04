@@ -4,6 +4,9 @@
 
 let anomalyLog = [];
 
+/** Min visible x-span when zooming (matches Graphs tab). */
+const ANOM_ZOOM_X_MIN_MS = 60 * 1000;
+
 const ANOM_PAGE_SIZE = 45;
 let anomLogVisible = ANOM_PAGE_SIZE;
 let anomAckKeys = new Set();
@@ -13,6 +16,105 @@ let anomSimReadings = [];
 let anomSimActiveSensors = new Set(['temperature']);
 /** From last telemetry sync (ms tolerance for snapping events to binned points). */
 let anomTelemetryBinSeconds = 0;
+
+/** Keeps anomaly charts stable across harmless fetchAnomalies() polls while this matches. */
+let _lastAnomalyVizSig = null;
+
+function invalidateAnomalyVizCache() {
+  _lastAnomalyVizSig = null;
+}
+
+function _rollupFingerprintStr(str) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+
+function anomTelemetryFingerprint() {
+  const n = anomSimReadings.length;
+  if (!n) return 'e0';
+  let roll = 0;
+  const stride = Math.max(1, Math.floor(n / 500));
+  for (let i = 0; i < n; i += stride) {
+    const r = anomSimReadings[i];
+    const blob =
+      String(r.timestamp) +
+      '\x1e' +
+      String(r.temperature ?? '') +
+      '\x1e' +
+      String(r.humidity ?? '') +
+      '\x1e' +
+      String(r.light ?? '') +
+      '\x1e' +
+      String(r.height ?? '');
+    roll ^= _rollupFingerprintStr(blob);
+    roll >>>= 0;
+  }
+  return (
+    'n' +
+      n +
+      '|' +
+      anomSimReadings[0].timestamp +
+      '|' +
+      anomSimReadings[n - 1].timestamp +
+      '|' +
+      roll.toString(36) +
+      '|bin' +
+      String(anomTelemetryBinSeconds ?? 0)
+  );
+}
+
+function anomEventsFingerprint() {
+  const n = anomalyLog.length;
+  if (!n) return 'e0';
+  let roll = 0;
+  const stride = Math.max(1, Math.floor(n / 600));
+  for (let i = 0; i < n; i += stride) {
+    const e = anomalyLog[i];
+    const blob =
+      String(e.timestamp) +
+      '\x1e' +
+      String(e.type ?? '') +
+      '\x1e' +
+      String(e.sensor ?? '') +
+      '\x1e' +
+      String(e.severity ?? '');
+    roll ^= _rollupFingerprintStr(blob);
+    roll >>>= 0;
+  }
+  return (
+    'ev' +
+      n +
+      '|' +
+      anomalyLog[0].timestamp +
+      '|' +
+      anomalyLog[n - 1].timestamp +
+      '|' +
+      roll.toString(36)
+  );
+}
+
+function buildAnomalyVizSig() {
+  const markers = document.getElementById('anomShowMarkers')?.checked !== false ? '1' : '0';
+  const sensors = [...anomSimActiveSensors].sort().join(',');
+  return markers + '|' + sensors + '|' + anomTelemetryFingerprint() + '|' + anomEventsFingerprint();
+}
+
+/**
+ * Full redraw Anomalies tab charts unless data + UI prefs match last render (polling safe).
+ * @param {boolean} [force] — redraw even when signature unchanged (UI toggles).
+ */
+function refreshAnomalyTabCharts(force) {
+  if (!document.getElementById('tab-anomalies')?.classList.contains('active')) return;
+  const sig = buildAnomalyVizSig();
+  if (!force && _lastAnomalyVizSig === sig) return;
+
+  renderAnomCharts();
+  renderAnomalyScoreTimeline();
+
+  if (anomSimReadings.length) _lastAnomalyVizSig = sig;
+  else invalidateAnomalyVizCache();
+}
 
 function anomAlignmentMaxDeltaMs() {
   const b = Number(anomTelemetryBinSeconds);
@@ -233,6 +335,7 @@ function syncAnomalyChartsFromTelemetryPayload(d) {
     }
     if (charts.anomSim) { for (const c of Object.values(charts.anomSim)) { if (c && c.destroy) c.destroy(); } charts.anomSim = null; }
     if (charts.anomScore && charts.anomScore.destroy) { charts.anomScore.destroy(); charts.anomScore = null; }
+    invalidateAnomalyVizCache();
     return;
   }
   anomTelemetryBinSeconds =
@@ -568,8 +671,7 @@ async function fetchAnomalies() {
         : 'No persisted FR10 events in this window for your samples — pick a sample, widen range, or use Reprocess window.';
     }
     if (document.getElementById('tab-anomalies')?.classList.contains('active')) {
-      renderAnomCharts();
-      renderAnomalyScoreTimeline();
+      refreshAnomalyTabCharts(false);
     }
   } catch (e) {
     console.warn('fetchAnomalies failed', e);
@@ -657,7 +759,11 @@ function buildAnomSensorPills() {
     const pill = document.createElement('button');
     pill.className = 'plant-tab' + (anomSimActiveSensors.has(s) ? ' active' : '');
     pill.textContent = s.charAt(0).toUpperCase() + s.slice(1);
-    pill.onclick = () => { anomSimActiveSensors.has(s) ? anomSimActiveSensors.delete(s) : anomSimActiveSensors.add(s); pill.classList.toggle('active'); renderAnomCharts(); };
+    pill.onclick = () => {
+      anomSimActiveSensors.has(s) ? anomSimActiveSensors.delete(s) : anomSimActiveSensors.add(s);
+      pill.classList.toggle('active');
+      refreshAnomalyTabCharts(true);
+    };
     container.appendChild(pill);
   }
 }
@@ -829,6 +935,16 @@ function renderAnomCharts() {
               },
             },
           },
+          zoom: {
+            pan: { enabled: true, mode: 'x' },
+            zoom: {
+              wheel: { enabled: true },
+              pinch: { enabled: true },
+              drag: { enabled: false },
+              mode: 'x',
+            },
+            limits: { x: { minRange: ANOM_ZOOM_X_MIN_MS } },
+          },
         },
         scales: {
           x: {
@@ -871,25 +987,75 @@ function renderAnomalyScoreTimeline() {
   if (charts.anomScore) charts.anomScore.destroy();
   wrap.innerHTML = '<canvas id="anomScoreChart" height="80"></canvas>';
 
-  const labels = anomSimReadings.map(r => new Date(r.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
-  const scores = anomSimReadings.map(r => {
+  const scorePts = [];
+  for (let i = 0; i < anomSimReadings.length; i++) {
+    const r = anomSimReadings[i];
+    const x = anomTimestampToMs(r.timestamp);
+    if (!Number.isFinite(x)) continue;
     const evts = anomEventsNearReadingTs(r.timestamp);
     let score = 0;
     for (const e of evts) { score += e.severity === 'danger' ? 3 : e.severity === 'warning' ? 2 : 1; }
-    return score;
-  });
+    scorePts.push({ x, y: score, __ts: r.timestamp });
+  }
 
   const gradient = document.getElementById('anomScoreChart').getContext('2d');
   const g = gradient.createLinearGradient(0,0,0,80);
   g.addColorStop(0,'rgba(168,50,50,0.6)'); g.addColorStop(1,'rgba(168,50,50,0.02)');
 
   charts.anomScore = new Chart(document.getElementById('anomScoreChart'), {
-    type: 'bar', data: { labels, datasets: [{ label:'Anomaly Score', data:scores, backgroundColor:g, borderColor:'rgba(168,50,50,0.7)', borderWidth:1, borderRadius:2 }] },
+    type: 'bar',
+    data: {
+      datasets: [{
+        label: 'Anomaly Score',
+        data: scorePts,
+        backgroundColor: g,
+        borderColor: 'rgba(168,50,50,0.7)',
+        borderWidth: 1,
+        borderRadius: 2,
+        parsing: false,
+      }],
+    },
     options: {
-      responsive:true, maintainAspectRatio:true, animation:{duration:300},
-      plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#2c2a1e', bodyFont:{family:'DM Mono',size:10}, cornerRadius:6, callbacks:{ label:ctx => { const ts = anomSimReadings[ctx.dataIndex]?.timestamp; const n = ts ? anomEventsNearReadingTs(ts).length : 0; return 'Score: '+ctx.raw+' ('+n+' events)'; } } } },
-      scales:{ x:{display:false}, y:{beginAtZero:true,ticks:{font:{family:'DM Mono',size:9},stepSize:1},grid:{color:'#e8e3d033'}} }
-    }
+      responsive: true,
+      maintainAspectRatio: true,
+      animation: { duration: 300 },
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#2c2a1e',
+          bodyFont: { family: 'DM Mono', size: 10 },
+          cornerRadius: 6,
+          callbacks: {
+            label: ctx => {
+              const xv = ctx.parsed && ctx.parsed.x != null ? ctx.parsed.x : null;
+              let ts = ctx.raw && typeof ctx.raw === 'object' && ctx.raw.__ts != null ? ctx.raw.__ts : null;
+              if (!ts && Number.isFinite(xv)) {
+                const p = scorePts.find(pt => pt.x === xv);
+                ts = p && p.__ts;
+              }
+              const n = ts ? anomEventsNearReadingTs(ts).length : 0;
+              const y = ctx.parsed && ctx.parsed.y != null ? ctx.parsed.y : (ctx.raw && ctx.raw.y);
+              return 'Score: ' + y + ' (' + n + ' events)';
+            },
+          },
+        },
+        zoom: {
+          pan: { enabled: true, mode: 'x' },
+          zoom: {
+            wheel: { enabled: true },
+            pinch: { enabled: true },
+            drag: { enabled: false },
+            mode: 'x',
+          },
+          limits: { x: { minRange: ANOM_ZOOM_X_MIN_MS } },
+        },
+      },
+      scales: {
+        x: { type: 'linear', display: false, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { font: { family: 'DM Mono', size: 9 }, stepSize: 1 }, grid: { color: '#e8e3d033' } },
+      },
+    },
   });
 }
 
@@ -1090,3 +1256,4 @@ window.addEventListener('samples:changed', function () {
 
 window.runMlClassifyStoredWindow = runMlClassifyStoredWindow;
 window.renderMlCountsPanel = renderMlCountsPanel;
+window.refreshAnomalyTabCharts = refreshAnomalyTabCharts;
