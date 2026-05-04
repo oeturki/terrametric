@@ -26,4 +26,9 @@ class TelemetryIngest(BaseModel):
 class TelemetryIngestResult(BaseModel):
     stored: bool
     session_id: Optional[int] = None
-    message: Optional[str] = None
+    message: Optional[str] = Field(
+        None,
+        description="Unset when latch OK. Otherwise: no_active_recording_session — no open recording; "
+        "no_session_for_this_plant_recording_on_other_sample — telemetry plant_id does not match any "
+        "open session (auto ventilation will not run; fix TM_BRIDGE_PLANT_ID or record that sample).",
+    )

@@ -55,6 +55,15 @@ def save_control(body: ControlProfilePayload, db: Session = Depends(get_db), use
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     saved = pc_svc.update_control_dict(db, body.plant_id, merged)
+    try:
+        from services.auto_ventilation_service import reconcile_auto_ventilation_after_profile_save
+
+        reconcile_auto_ventilation_after_profile_save(db, body.plant_id)
+    except Exception:
+        logger.exception(
+            "auto ventilation reconcile after save failed plant_id=%s",
+            body.plant_id,
+        )
     return {"status": "saved", "group": str(body.plant_id), "plant_id": body.plant_id, "controls": saved}
 
 

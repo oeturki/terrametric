@@ -23,6 +23,14 @@ from services.telemetry_service import (
 router = APIRouter()
 
 
+def _ingest_result_message(session_id: Optional[int], link_hint: Optional[str]) -> Optional[str]:
+    if session_id is not None:
+        return None
+    if link_hint == "open_sessions_on_other_plants":
+        return "no_session_for_this_plant_recording_on_other_sample"
+    return "no_active_recording_session"
+
+
 def _owner_plant_ids(db: Session, user_id: int) -> List[int]:
     return [r[0] for r in db.query(Plant.id).filter(Plant.owner_id == user_id).all()]
 
@@ -147,7 +155,7 @@ def get_telemetry_timeseries_by_plant(
 
 @router.post("/ingest", response_model=TelemetryIngestResult)
 def ingest_telemetry(body: TelemetryIngest, db: Session = Depends(get_db)):
-    row = store_telemetry_row(
+    row, link_hint = store_telemetry_row(
         db,
         temperature=body.temperature,
         humidity=body.humidity,
@@ -163,5 +171,5 @@ def ingest_telemetry(body: TelemetryIngest, db: Session = Depends(get_db)):
     return TelemetryIngestResult(
         stored=True,
         session_id=row.session_id,
-        message=None if row.session_id else "no_active_recording_session",
+        message=_ingest_result_message(row.session_id, link_hint),
     )

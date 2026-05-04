@@ -243,11 +243,11 @@ function anomInterpolateReadingPointAt(sensor, tMs) {
 
   if (tMs <= tFirst) {
     const y = yOf(0);
-    return y != null ? { x: tFirst, y } : null;
+    return y != null ? { x: tMs, y } : null;
   }
   if (tMs >= tLast) {
     const y = yOf(rs.length - 1);
-    return y != null ? { x: tLast, y } : null;
+    return y != null ? { x: tMs, y } : null;
   }
 
   for (let i = 0; i < rs.length - 1; i++) {
@@ -796,14 +796,6 @@ function renderAnomCharts() {
 
     if (!linePts.length) continue;
 
-    let xMin = Infinity;
-    let xMax = -Infinity;
-    for (let li = 0; li < linePts.length; li++) {
-      const xv = linePts[li].x;
-      if (xv < xMin) xMin = xv;
-      if (xv > xMax) xMax = xv;
-    }
-
     const datasets = [
       {
         type: 'line',
@@ -835,7 +827,9 @@ function renderAnomCharts() {
           const e = evts[j];
           const xEv = anomTimestampToMs(e.timestamp);
           if (!Number.isFinite(xEv)) continue;
-          if (xEv < xMin || xEv > xMax) continue;
+          // Do not drop events outside the first/last *telemetry sample* timestamps: the summary bar
+          // counts anomalies across the graph's hour window; telemetry may exist only on a subset
+          // (recording gaps, sparse inserts). Interpolation clamps to endpoints so triangles still plot.
           const pt = anomInterpolateReadingPointAt(sensor, xEv);
           if (!pt) continue;
           pts.push(pt);

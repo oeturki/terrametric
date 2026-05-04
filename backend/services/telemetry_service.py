@@ -21,7 +21,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from statistics import mean
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,11 @@ from sqlalchemy.orm import Session
 
 from models.device import Device
 from models.reading import Telemetry
-from services.recording_session_service import get_any_open_session, get_open_session_for_plant
+from services.recording_session_service import (
+    get_active_sessions,
+    get_any_open_session,
+    get_open_session_for_plant,
+)
 
 
 def query_telemetry_for_plant_since(
@@ -75,7 +79,7 @@ def store_telemetry_row(
     device_id: Optional[int] = None,
     bt_name: Optional[str] = None,
     plant_id: Optional[int] = None,
-) -> Telemetry:
+) -> Tuple[Telemetry, Optional[str]]:
     """Attach to an open recording session for the given plant when possible.
 
     If a ``plant_id`` is provided, prefer the open session for that plant so multiple users
@@ -96,6 +100,24 @@ def store_telemetry_row(
     pid = open_sess.plant_id if open_sess else None
     if pid is None and plant_id is not None:
         pid = plant_id
+
+    ingest_link_hint: Optional[str] = None
+    # Auto ventilation only runs when rows are latched to an open recording (session_id set).
+    # Control + camera still evaluate ``plant_id`` when session_id is NULL — easy to misread as
+    # "recording active" on the UI while the bridge posts a different ``plant_id``.
+    if pid is not None and sid is None:
+        opens = get_active_sessions(db)
+        if opens and not any(s.plant_id == pid for s in opens):
+            ingest_link_hint = "open_sessions_on_other_plants"
+            logger.warning(
+                "telemetry ingest: plant_id=%s is not linked to any open recording session while "
+                "%s other session(s) are open (auto ventilation will not run until plant_id matches "
+                "the recording sample, or omit plant_id so ingest binds to the latest open session). "
+                "Active session plant_ids: %s",
+                pid,
+                len(opens),
+                sorted({s.plant_id for s in opens}),
+            )
 
     if device_id is not None:
         dev = db.query(Device).filter(Device.id == device_id).first()
@@ -153,7 +175,7 @@ def store_telemetry_row(
                 "camera triggers failed telemetry id=%s",
                 getattr(row, "id", None),
             )
-    return row
+    return row, ingest_link_hint
 
 def get_latest_reading(db: Session) -> Optional[Dict[str, Any]]:
     row = db.query(Telemetry).order_by(Telemetry.timestamp.desc()).first()

@@ -361,7 +361,7 @@ class StreamSupervisor:
                         ctx.packet_loss_skip_remaining -= 1
                     else:
                         reading = generate_reading(scenario, datetime.utcnow(), ctx)
-                        store_telemetry_row(
+                        row, _ = store_telemetry_row(
                             db,
                             temperature=reading.temperature,
                             humidity=reading.humidity,

@@ -145,3 +145,41 @@ def test_reconcile_without_open_session_does_not_touch_db(fake_db, monkeypatch):
 
     fake_db.query = boom
     avs.reconcile_auto_ventilation_after_profile_save(fake_db, 1)
+
+
+def test_reconcile_after_profile_save_turns_on_when_band_narrows(
+    fake_db, patched_enabled, capture_posts, monkeypatch
+):
+    """Same as save_control: new desired band can breach without a new telemetry packet."""
+    import copy
+
+    class Sess:
+        id = 88
+
+    monkeypatch.setattr(avs, "get_open_session_for_plant", lambda *_a, **_k: Sess())
+
+    profile = copy.deepcopy(_PROFILE)
+    profile["temperature"]["max"] = 30.0
+
+    def get_prof(_db, pid):
+        return profile
+
+    monkeypatch.setattr(avs.pc_svc, "get_control_dict_for_plant", get_prof)
+
+    row = _row(28.0, 50.0)  # inside 18–30
+    avs.process_auto_ventilation_after_commit(fake_db, plant_id=1, session_id=88, row=row)
+    assert capture_posts == []
+
+    profile["temperature"]["max"] = 26.0  # 28 now breaches
+    qmock = MagicMock()
+    qmock.filter.return_value = qmock
+    qmock.order_by.return_value = qmock
+    qmock.first.return_value = row
+
+    def q(model):
+        assert model is Telemetry
+        return qmock
+
+    fake_db.query = q
+    avs.reconcile_auto_ventilation_after_profile_save(fake_db, 1)
+    assert capture_posts == [{"on": True, "spin": True}]
