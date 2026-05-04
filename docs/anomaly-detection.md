@@ -1,6 +1,6 @@
 # Anomaly Detection (FR10) — Implementation Guide
 
-**Owner:** Omer  
+**Owner:** Omer
 **Stack:** FastAPI ingest, SQLite (or configured DB), in-process detectors  
 **UI:** TerraMetric View Data → Anomalies (+ synthetic lab endpoint)
 

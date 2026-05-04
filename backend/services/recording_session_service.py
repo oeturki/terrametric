@@ -71,7 +71,7 @@ def start_session(
     user_id: Optional[int] = None,
     scenario: Optional[str] = None,
     dummy_stream: bool = False,
-    stream_interval_sec: Optional[int] = None,
+    stream_interval_sec: Optional[float] = None,
 ) -> RecordingSession:
     p = db.query(Plant).filter(Plant.id == plant_id).first()
     if p is None:

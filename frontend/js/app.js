@@ -84,11 +84,16 @@ function switchTab(tab, el) {
   document.querySelectorAll('.tabpanel').forEach(p => p.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'gallery' && typeof updateGalleryActionsBar === 'function') {
+    updateGalleryActionsBar();
+  }
   if (tab === 'anomalies') {
     if (typeof mirrorAnomalyDupFromGraph === 'function') mirrorAnomalyDupFromGraph();
-    if (typeof fetchTelemetry === 'function') fetchTelemetry();
-    if (typeof fetchAnomalies === 'function') fetchAnomalies();
-    if (typeof refreshAnomalyPlantIdSessionHint === 'function') refreshAnomalyPlantIdSessionHint();
+    void (async function () {
+      if (typeof fetchTelemetry === 'function') await fetchTelemetry();
+      else if (typeof fetchAnomalies === 'function') await fetchAnomalies();
+      if (typeof refreshAnomalyPlantIdSessionHint === 'function') refreshAnomalyPlantIdSessionHint();
+    })();
   }
 }
 

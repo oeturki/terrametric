@@ -1,0 +1,18 @@
+flowchart TB
+  subgraph EDGE["Edge sensing"]
+    ARD["Arduino<br/>DHT11 / PIR / LDR / HC-SR04"]
+    BT[["HC-05 Bluetooth<br/>JSON lines"]]
+  end
+  subgraph PI["Optional Raspberry Pi"]
+    BR["pi/arduino_bridge.py<br/>POST /api/telemetry/ingest"]
+    TB["Node-RED / ThingsBoard<br/>optional dashboards"]
+  end
+  subgraph CORE["Authoritative stack"]
+    API["FastAPI + SQLAlchemy"]
+    DB[("SQLite / Postgres")]
+    UI["TerraMetric UI<br/>+ OpenAPI /docs"]
+  end
+  ARD --> BT --> BR --> API
+  TB -.-> API
+  API --> DB
+  API --> UI

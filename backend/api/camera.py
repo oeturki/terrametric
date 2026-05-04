@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -34,6 +34,33 @@ def list_images(
         raise HTTPException(status_code=403, detail="Sample not yours")
     data = cam_svc.list_captures_json_for_plants(db, mine, plant_id_filter=plant_id)
     return data
+
+
+@router.delete("/images", status_code=200)
+def delete_all_images_for_plant(
+    plant_id: int = Query(..., ge=1, description="Delete every gallery capture for this sample"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    mine = _owner_plant_ids(db, user.id)
+    if plant_id not in mine:
+        raise HTTPException(status_code=403, detail="Sample not yours")
+    ok, deleted = cam_svc.delete_all_captures_for_plant(db, plant_id, user.id)
+    if not ok:
+        raise HTTPException(status_code=403, detail="Sample not yours")
+    return {"deleted": deleted}
+
+
+@router.delete("/images/{capture_id}", status_code=204)
+def delete_one_image(
+    capture_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    gone = cam_svc.delete_capture_for_owner(db, capture_id, user.id)
+    if not gone:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return Response(status_code=204)
 
 
 @router.get("/images/{capture_id}/file")

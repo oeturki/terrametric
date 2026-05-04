@@ -11,30 +11,165 @@ let anomFocusTs = null;
 
 let anomSimReadings = [];
 let anomSimActiveSensors = new Set(['temperature']);
+/** From last telemetry sync (ms tolerance for snapping events to binned points). */
+let anomTelemetryBinSeconds = 0;
+
+function anomAlignmentMaxDeltaMs() {
+  const b = Number(anomTelemetryBinSeconds);
+  if (Number.isFinite(b) && b > 0) return b * 1000 + 120000;
+  return 120000;
+}
+
+/** Max ms between an event timestamp and a plotted telemetry point we'll treat as same bucket. */
+function anomSnapToleranceMs() {
+  const alignment = anomAlignmentMaxDeltaMs();
+  if (anomSimReadings.length < 2) return alignment;
+  const t0 = anomTimestampToMs(anomSimReadings[0].timestamp);
+  const t1 = anomTimestampToMs(anomSimReadings[anomSimReadings.length - 1].timestamp);
+  if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) return alignment;
+  const spanMs = t1 - t0;
+  const stepEst = spanMs / Math.max(anomSimReadings.length - 1, 1);
+  const widened = Math.max(alignment, Math.min(stepEst * 96, alignment * 6));
+  return Math.min(Math.max(widened, alignment), alignment + spanMs / 24);
+}
+
+function anomTimestampToMs(ts) {
+  const n = new Date(ts).getTime();
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function anomalyEventMatchesSensor(evt, sensor) {
+  const sRaw = evt && evt.sensor != null ? String(evt.sensor).trim() : '';
+  if (!sRaw) return false;
+  const s = sRaw.toLowerCase();
+  const ch = String(sensor || '').trim().toLowerCase();
+  if (!ch) return false;
+  if (s === 'all') return true;
+  if (ch === 'temperature' && s === 'temperature+humidity') return true;
+  if ((ch === 'height' || ch === 'plant_height') && (s === 'height' || s === 'plant_height')) return true;
+  return s === ch;
+}
 
 function anomEventsNearReadingTs(readingTs) {
   const t0 = new Date(readingTs).getTime();
   if (!Number.isFinite(t0)) return [];
+  const maxW = anomSnapToleranceMs();
   return anomalyLog.filter(e => {
     const ta = new Date(e.timestamp).getTime();
-    return Number.isFinite(ta) && Math.abs(ta - t0) <= 120000;
+    return Number.isFinite(ta) && Math.abs(ta - t0) <= maxW;
   });
 }
 
-function anomFindReadingIndexForTs(ts) {
+function anomMedianStepMs() {
+  if (anomSimReadings.length < 2) return 60000;
+  const deltas = [];
+  const lim = Math.min(anomSimReadings.length - 1, 500);
+  for (let i = 0; i < lim; i++) {
+    const a = anomTimestampToMs(anomSimReadings[i].timestamp);
+    const b = anomTimestampToMs(anomSimReadings[i + 1].timestamp);
+    if (Number.isFinite(a) && Number.isFinite(b)) {
+      const d = Math.abs(b - a);
+      if (d > 0 && d < 86400000) deltas.push(d);
+    }
+  }
+  if (!deltas.length) return 60000;
+  deltas.sort(function (x, y) { return x - y; });
+  return deltas[deltas.length >> 1];
+}
+
+/** Narrow follow-up bracket so many events near the tail do not all snap to one plotted bucket. */
+function anomSecondaryReadingMatchMs() {
+  const snap = anomSnapToleranceMs();
+  const step = anomMedianStepMs();
+  return Math.min(Math.max(snap * 2.5, step * 56), snap * 5, 240000);
+}
+
+/** Tooltip should list only anomalies genuinely near the hovered x (avoid multi-minute blobs). */
+function anomTooltipMatchWindowMs() {
+  const snap = anomSnapToleranceMs();
+  const step = anomMedianStepMs();
+  return Math.min(Math.max(step * 20, 3000), snap, 60000);
+}
+
+function anomResolveReadingIndexForEvent(ts) {
   if (!anomSimReadings.length || ts == null) return -1;
-  const target = new Date(ts).getTime();
-  if (Number.isNaN(target)) return -1;
+  const target =
+    typeof ts === 'number' && Number.isFinite(ts)
+      ? ts
+      : new Date(ts).getTime();
+  if (!Number.isFinite(target)) return -1;
   let best = -1;
   let bestDiff = Infinity;
   for (let i = 0; i < anomSimReadings.length; i++) {
     const t = new Date(anomSimReadings[i].timestamp).getTime();
+    if (!Number.isFinite(t)) continue;
     const d = Math.abs(t - target);
-    if (d < bestDiff) { bestDiff = d; best = i; }
+    if (d < bestDiff) {
+      bestDiff = d;
+      best = i;
+    }
   }
-  return bestDiff <= 120000 ? best : -1;
+  if (best < 0) return -1;
+  if (bestDiff <= anomSnapToleranceMs()) return best;
+  if (bestDiff <= anomSecondaryReadingMatchMs()) return best;
+  return -1;
 }
 
+/**
+ * XY for anomaly scatter markers aligned to the plotted telemetry curve.
+ *
+ * Previously the code placed X at event time but Y from the snapped reading row alone.
+ * With coarse buckets or permissive snapping, nearest-row Y could stick to an early plateau
+ * while X moved across the window — triangles formed a misleading horizontal ribbon above
+ * a later dive. Linear interpolation between adjacent plotted points fixes that.
+ */
+function anomInterpolateReadingPointAt(sensor, tMs) {
+  const rs = anomSimReadings;
+  if (!rs.length || !Number.isFinite(tMs)) return null;
+
+  const yOf = idx => {
+    const v = rs[idx][sensor];
+    if (v == null || !Number.isFinite(Number(v))) return null;
+    return Number(v);
+  };
+
+  const tOf = idx => anomTimestampToMs(rs[idx].timestamp);
+
+  const tFirst = tOf(0);
+  const tLast = tOf(rs.length - 1);
+  if (!Number.isFinite(tFirst) || !Number.isFinite(tLast)) return null;
+
+  if (tMs <= tFirst) {
+    const y = yOf(0);
+    return y != null ? { x: tFirst, y } : null;
+  }
+  if (tMs >= tLast) {
+    const y = yOf(rs.length - 1);
+    return y != null ? { x: tLast, y } : null;
+  }
+
+  for (let i = 0; i < rs.length - 1; i++) {
+    const t0 = tOf(i);
+    const t1 = tOf(i + 1);
+    if (!Number.isFinite(t0) || !Number.isFinite(t1)) continue;
+    if (tMs < t0 || tMs > t1) continue;
+
+    const y0 = yOf(i);
+    const y1 = yOf(i + 1);
+    if (y0 == null || y1 == null) return null;
+
+    const u = t1 === t0 ? 0 : (tMs - t0) / (t1 - t0);
+    return { x: tMs, y: y0 + u * (y1 - y0) };
+  }
+
+  /** Rare non-monotonic timestamps: fall back to nearest-row point on the curve */
+  let ix = anomResolveReadingIndexForEvent(tMs);
+  if (ix < 0) return null;
+  const tx = tOf(ix);
+  const yy = yOf(ix);
+  if (!Number.isFinite(tx) || yy == null) return null;
+  return { x: tx, y: yy };
+}
 function updateAnomDataSourceBanner() {
   const el = document.getElementById('anomDataSourceBanner');
   if (!el) return;
@@ -84,6 +219,7 @@ async function refreshAnomalyPlantIdSessionHint() {
  */
 function syncAnomalyChartsFromTelemetryPayload(d) {
   if (!d || !Array.isArray(d.timestamps) || !d.timestamps.length) {
+    anomTelemetryBinSeconds = 0;
     anomSimReadings = [];
     updateAnomDataSourceBanner();
     buildAnomSensorPills();
@@ -99,6 +235,8 @@ function syncAnomalyChartsFromTelemetryPayload(d) {
     if (charts.anomScore && charts.anomScore.destroy) { charts.anomScore.destroy(); charts.anomScore = null; }
     return;
   }
+  anomTelemetryBinSeconds =
+    d.bin_seconds != null && !Number.isNaN(Number(d.bin_seconds)) ? Number(d.bin_seconds) : 0;
   anomSimReadings = [];
   for (let i = 0; i < d.timestamps.length; i++) {
     anomSimReadings.push({
@@ -111,8 +249,6 @@ function syncAnomalyChartsFromTelemetryPayload(d) {
   }
   updateAnomDataSourceBanner();
   buildAnomSensorPills();
-  renderAnomCharts();
-  renderAnomalyScoreTimeline();
 }
 
 /** Plant id for View Data → Anomalies: sync graph picker from anomalies dropdown, then read either. */
@@ -149,8 +285,8 @@ async function reprocessAnomalyWindow() {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const j = await res.json();
     fireAlert('ok', 'Reprocessed', 'Replayed ' + (j.telemetry_rows_reprocessed || 0) + ' telemetry rows for sample #' + plantId + '.', 5000);
-    if (typeof fetchAnomalies === 'function') await fetchAnomalies();
     if (typeof fetchTelemetry === 'function') await fetchTelemetry();
+    if (typeof fetchAnomalies === 'function') await fetchAnomalies();
   } catch (e) {
     fireAlert('danger', 'Reprocess failed', String(e.message || e), 5000);
   }
@@ -424,7 +560,14 @@ async function fetchAnomalies() {
     anomalyLog = d.events || [];
     updateAnomalySummaryCards(d);
     renderAnomalyTable();
-    if (anomSimReadings.length && document.getElementById('tab-anomalies')?.classList.contains('active')) {
+    if (hintEl && ((d.total ?? 0) === 0)) {
+      hintEl.textContent = plantId
+        ? ('No persisted FR10 events in this window for sample #' +
+            plantId +
+            '. Charts can still show telemetry — try Reprocess window, widen the graphs range, or confirm live/dummy ingest includes plant_id.')
+        : 'No persisted FR10 events in this window for your samples — pick a sample, widen range, or use Reprocess window.';
+    }
+    if (document.getElementById('tab-anomalies')?.classList.contains('active')) {
       renderAnomCharts();
       renderAnomalyScoreTimeline();
     }
@@ -464,6 +607,7 @@ const ANOM_TYPE_META = {
   level_shift: { icon:'🔀', color:'#2a7a4a', label:'Level Shift',  pill:'danger' },
   ewma_breach: { icon:'📐', color:'#5a6a1a', label:'EWMA Breach',  pill:'warning' },
   seasonal:    { icon:'🌗', color:'#3a6a8a', label:'Seasonal',     pill:'info' },
+  missing_data:{ icon:'⬚', color:'#6a5560', label:'Missing Data', pill:'warning' },
 };
 function updateAnomalySummaryCards(d) {
   setText('anomTotal',      d.total ?? 0);
@@ -529,9 +673,6 @@ function renderAnomCharts() {
   if (charts.anomSim) { for (const c of Object.values(charts.anomSim)) { if (c && c.destroy) c.destroy(); } }
   charts.anomSim = {};
 
-  const labels = anomSimReadings.map(r => { const t = new Date(r.timestamp); return t.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); });
-  const rMap = {}; anomSimReadings.forEach(r => rMap[r.timestamp] = r);
-
   let html = '';
   for (const sensor of activeSensors) {
     html += '<div style="margin-bottom:6px;"><canvas id="anomChart_' + sensor + '" height="' + (activeSensors.length > 1 ? 100 : 180) + '"></canvas></div>';
@@ -539,67 +680,192 @@ function renderAnomCharts() {
   wrap.innerHTML = html;
 
   for (const sensor of activeSensors) {
-    const datasets = [{
-      label: sensor.charAt(0).toUpperCase() + sensor.slice(1) + ' (' + (ANOM_UNITS[sensor]||'') + ')',
-      data: anomSimReadings.map(r => r[sensor]),
-      borderColor: ANOM_COLORS[sensor], backgroundColor: ANOM_COLORS[sensor] + '18',
-      borderWidth: 1.5, pointRadius: 0.8, tension: 0.3, fill: true, order: 2,
-    }];
+    const linePts = [];
+    for (let pi = 0; pi < anomSimReadings.length; pi++) {
+      const r = anomSimReadings[pi];
+      const x = anomTimestampToMs(r.timestamp);
+      if (!Number.isFinite(x)) continue;
+      linePts.push({ x: x, y: r[sensor] });
+    }
 
-    if (showMarkers) {
-      const sensorEvents = anomalyLog.filter(e => e.sensor === sensor || (sensor === 'temperature' && e.sensor === 'temperature+humidity'));
+    if (!linePts.length) continue;
+
+    let xMin = Infinity;
+    let xMax = -Infinity;
+    for (let li = 0; li < linePts.length; li++) {
+      const xv = linePts[li].x;
+      if (xv < xMin) xMin = xv;
+      if (xv > xMax) xMax = xv;
+    }
+
+    const datasets = [
+      {
+        type: 'line',
+        label: sensor.charAt(0).toUpperCase() + sensor.slice(1) + ' (' + (ANOM_UNITS[sensor] || '') + ')',
+        order: 0,
+        data: linePts,
+        borderColor: ANOM_COLORS[sensor],
+        backgroundColor: ANOM_COLORS[sensor] + '18',
+        borderWidth: 1.5,
+        tension: 0.3,
+        fill: true,
+        pointRadius: showMarkers ? 0.55 : 0,
+        pointHoverRadius: showMarkers ? 4 : 0,
+        pointBackgroundColor: ANOM_COLORS[sensor] + '88',
+      },
+    ];
+
+    if (showMarkers && anomalyLog.length) {
+      const sensorEvents = anomalyLog.filter(function (e) { return anomalyEventMatchesSensor(e, sensor); });
       const byType = {};
-      for (const e of sensorEvents) { (byType[e.type] = byType[e.type] || []).push(e); }
-      for (const [type, evts] of Object.entries(byType)) {
-        const meta = ANOM_TYPE_META[type] || { color:'#999', label:type };
+      for (let si = 0; si < sensorEvents.length; si++) {
+        const e = sensorEvents[si];
+        const tk = String(e.type || '').toLowerCase();
+        (byType[tk] = byType[tk] || []).push(e);
+      }
+      for (const [typeKey, evts] of Object.entries(byType)) {
+        const pts = [];
+        for (let j = 0; j < evts.length; j++) {
+          const e = evts[j];
+          const xEv = anomTimestampToMs(e.timestamp);
+          if (!Number.isFinite(xEv)) continue;
+          if (xEv < xMin || xEv > xMax) continue;
+          const pt = anomInterpolateReadingPointAt(sensor, xEv);
+          if (!pt) continue;
+          pts.push(pt);
+        }
+        if (!pts.length) continue;
+        const meta = ANOM_TYPE_META[typeKey] || { color: '#6a5560', label: typeKey };
         datasets.push({
+          type: 'scatter',
+          order: 20,
+          clip: false,
           label: meta.label,
-          data: evts.map(e => {
-            const idx = anomFindReadingIndexForTs(e.timestamp);
-            const tsKey = idx >= 0 ? anomSimReadings[idx].timestamp : e.timestamp;
-            return idx >= 0 ? { x: labels[idx], y: rMap[tsKey]?.[sensor] ?? anomSimReadings[idx][sensor] ?? null } : null;
-          }).filter(Boolean),
+          data: pts,
           pointStyle: 'triangle',
-          pointRadius: 6, pointBorderColor: meta.color, pointBackgroundColor: meta.color + '88',
-          pointBorderWidth: 2, showLine: false, order: 1,
+          pointRadius: 7,
+          hitRadius: 10,
+          pointBorderWidth: 2,
+          pointBorderColor: meta.color,
+          pointBackgroundColor: meta.color + 'cc',
+          showLine: false,
         });
       }
     }
 
     charts.anomSim[sensor] = new Chart(document.getElementById('anomChart_' + sensor), {
-      type: 'line', data: { labels, datasets },
+      type: 'line',
+      data: { datasets },
       options: {
-        responsive: true, maintainAspectRatio: true, animation: { duration: 300 },
-        interaction: { mode: 'index', intersect: false },
+        responsive: true,
+        maintainAspectRatio: true,
+        animation: { duration: 300 },
+        interaction: { mode: 'nearest', axis: 'x', intersect: false },
         plugins: {
-          legend: { labels: { font: { family:'DM Mono', size:9 }, usePointStyle: true, padding:10 } },
-          tooltip: { backgroundColor:'#2c2a1e', titleFont:{ family:'Syne', weight:'700' }, bodyFont:{ family:'DM Mono', size:10 }, cornerRadius:8, padding:8,
-            callbacks: { afterBody: function(ctx) {
-              const idx = ctx[0]?.dataIndex;
-              if (idx == null) return '';
-              const ts = anomSimReadings[idx]?.timestamp;
-              const t0 = ts ? new Date(ts).getTime() : 0;
-              const evts = anomalyLog.filter(e => {
-                if (!(e.sensor === sensor || e.sensor === 'temperature+humidity')) return false;
-                const ta = new Date(e.timestamp).getTime();
-                return Number.isFinite(ta) && Number.isFinite(t0) && Math.abs(ta - t0) <= 120000;
-              });
-              if (!evts.length) return '';
-              return '\n--- Anomalies ---\n' + evts.map(e => (ANOM_TYPE_META[e.type]?.icon||'') + ' ' + e.type + ': ' + (e.description||'').slice(0,60)).join('\n');
-            }}
-          }
+          legend: { labels: { font: { family: 'DM Mono', size: 9 }, usePointStyle: true, padding: 10 } },
+          tooltip: {
+            backgroundColor: '#2c2a1e',
+            titleFont: { family: 'Syne', weight: '700' },
+            bodyFont: { family: 'DM Mono', size: 10 },
+            cornerRadius: 8,
+            padding: 8,
+            callbacks: {
+              title: function (items) {
+                const item = items[0];
+                if (!item) return '';
+                let x = item.parsed && item.parsed.x != null ? item.parsed.x : null;
+                if (x == null && item.raw && typeof item.raw === 'object') x = item.raw.x;
+                if (!Number.isFinite(Number(x))) return '';
+                var dt = new Date(Number(x));
+                return isNaN(dt.getTime())
+                  ? String(x)
+                  : dt.toLocaleString([], {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    });
+              },
+              afterBody: function (ctx) {
+                const item = ctx[0];
+                if (!item) return '';
+                let t0 = NaN;
+                if (item.parsed && item.parsed.x != null && Number.isFinite(Number(item.parsed.x))) {
+                  t0 = Number(item.parsed.x);
+                } else if (item.raw && typeof item.raw === 'object' && item.raw.x != null) {
+                  t0 = Number(item.raw.x);
+                }
+                if (!Number.isFinite(t0)) return '';
+                var maxW = anomTooltipMatchWindowMs();
+                var evNear = anomalyLog.filter(function (e) {
+                  if (!anomalyEventMatchesSensor(e, sensor)) return false;
+                  var ta = new Date(e.timestamp).getTime();
+                  return Number.isFinite(ta) && Math.abs(ta - t0) <= maxW;
+                });
+                if (!evNear.length) return '';
+                evNear.sort(function (a, b) {
+                  var da = Math.abs(new Date(a.timestamp).getTime() - t0);
+                  var db = Math.abs(new Date(b.timestamp).getTime() - t0);
+                  return da - db;
+                });
+                var LIMIT = 10;
+                var lines = [];
+                var n = Math.min(evNear.length, LIMIT);
+                for (var ii = 0; ii < n; ii++) {
+                  var ee = evNear[ii];
+                  lines.push(
+                    (ANOM_TYPE_META[String(ee.type || '').toLowerCase()]?.icon || '') +
+                      ' ' +
+                      ee.type +
+                      ': ' +
+                      (ee.description || '').slice(0, 72),
+                  );
+                }
+                var tail = '';
+                if (evNear.length > LIMIT) tail = '\n… and ' + (evNear.length - LIMIT) + ' more in this vicinity';
+                return '\n--- Anomalies ---\n' + lines.join('\n') + tail;
+              },
+            },
+          },
         },
         scales: {
-          x: { ticks:{ font:{ family:'DM Mono', size:8 }, maxTicksLimit:10 }, grid:{ display:false } },
-          y: { title:{ display:true, text:sensor.charAt(0).toUpperCase()+sensor.slice(1)+' ('+( ANOM_UNITS[sensor]||'')+')', font:{ family:'Syne', size:10, weight:'700' } }, ticks:{ font:{ family:'DM Mono', size:9 } }, grid:{ color:'#e8e3d0' } }
-        }
-      }
+          x: {
+            type: 'linear',
+            ticks: {
+              font: { family: 'DM Mono', size: 8 },
+              maxTicksLimit: 12,
+              callback: function (value) {
+                return new Date(value).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                  month: 'short',
+                  day: 'numeric',
+                });
+              },
+            },
+            grid: { display: false },
+          },
+          y: {
+            title: {
+              display: true,
+              text: sensor.charAt(0).toUpperCase() + sensor.slice(1) + ' (' + (ANOM_UNITS[sensor] || '') + ')',
+              font: { family: 'Syne', size: 10, weight: '700' },
+            },
+            ticks: { font: { family: 'DM Mono', size: 9 } },
+            grid: { color: '#e8e3d0' },
+          },
+        },
+      },
     });
   }
 }
 
 function renderAnomalyScoreTimeline() {
   const wrap = document.getElementById('anomScoreWrap');
+  if (!wrap) return;
   if (!anomSimReadings.length || !anomalyLog.length) { wrap.innerHTML = '<div class="anom-placeholder anom-placeholder--compact"><p class="anom-placeholder__text">No scored anomalies for this run.</p></div>'; return; }
 
   if (charts.anomScore) charts.anomScore.destroy();
@@ -810,13 +1076,16 @@ initAnomalyBodyDelegateOnce();
 updateAnomDataSourceBanner();
 
 window.addEventListener('samples:changed', function () {
-  if (typeof fetchAnomalies === 'function') fetchAnomalies();
-  if (typeof fetchTelemetry === 'function' && document.getElementById('tab-anomalies')?.classList.contains('active')) {
-    fetchTelemetry();
-  }
-  if (typeof refreshAnomalyPlantIdSessionHint === 'function' && document.getElementById('tab-anomalies')?.classList.contains('active')) {
-    refreshAnomalyPlantIdSessionHint();
-  }
+  void (async function () {
+    if (typeof fetchTelemetry === 'function' && document.getElementById('tab-anomalies')?.classList.contains('active')) {
+      await fetchTelemetry();
+    } else if (typeof fetchAnomalies === 'function') {
+      fetchAnomalies();
+    }
+    if (typeof refreshAnomalyPlantIdSessionHint === 'function' && document.getElementById('tab-anomalies')?.classList.contains('active')) {
+      refreshAnomalyPlantIdSessionHint();
+    }
+  })();
 });
 
 window.runMlClassifyStoredWindow = runMlClassifyStoredWindow;

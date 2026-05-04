@@ -116,8 +116,6 @@ function updateESIGauge(esi) {
 
 function updateControlLiveVals(d) {
   if (!d) return;
-  // PIR maps to 0/1; soft band is optional [0,1] on Control (same order as other sensors).
-  const m = d.motion == null ? NaN : (d.motion ? 1 : 0);
 
   setLiveField('ctrl-temp',   d.temperature?.toFixed(1) + ' °C',  _tempVisualWarn(d.temperature));
   setLiveField('ctrl-hum',    d.humidity?.toFixed(1)    + ' %',   _bandVisualWarn(d.humidity, 'humid-min', 'humid-max', 'warn-hum-low', 'warn-hum-high'));
@@ -134,10 +132,7 @@ function updateControlLiveVals(d) {
     cHei.className = 'live-val connected' + (met ? ' height-met' : '');
   }
 
-  var mMin = parseFloat(document.getElementById('motion-min')?.value);
-  var mMax = parseFloat(document.getElementById('motion-max')?.value);
-  var motionWarn = Number.isFinite(m) && ((!isNaN(mMin) && m < mMin) || (!isNaN(mMax) && m > mMax));
-  setLiveField('ctrl-motion', d.motion ? '🟡 Detected'  : '🟢 Clear', motionWarn);
+  setLiveField('ctrl-motion', d.motion ? '🟡 Detected' : '🟢 Clear', false);
   setText('ctrl-cam', new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
 }
 
@@ -152,25 +147,41 @@ function setLiveField(id, text, warn) {
 
 function resetDefaults() {
   const d = CONFIG.DEFAULTS;
+  const tMn = document.getElementById('temp-min');
+  if (tMn) tMn.value = d.temp_min != null ? d.temp_min : '';
+  const tMx = document.getElementById('temp-max');
+  if (tMx) tMx.value = d.temp_max != null ? d.temp_max : '';
   const wtLo = document.getElementById('warn-temp-low');
   if (wtLo) wtLo.value = d.temp_warn_low != null ? d.temp_warn_low : '';
   const wtHi = document.getElementById('warn-temp-high');
   if (wtHi) wtHi.value = d.temp_warn_high != null ? d.temp_warn_high : '';
-  document.getElementById('int-temp').value = d.temp_int;
+  const intT = document.getElementById('int-temp');
+  if (intT) intT.value = d.temp_int;
 
+  const hMn = document.getElementById('humid-min');
+  if (hMn) hMn.value = d.hum_min != null ? d.hum_min : '';
+  const hMx = document.getElementById('humid-max');
+  if (hMx) hMx.value = d.hum_max != null ? d.hum_max : '';
   const whLo = document.getElementById('warn-hum-low');
   if (whLo) whLo.value = d.hum_warn_low != null ? d.hum_warn_low : '';
   const whHi = document.getElementById('warn-hum-high');
   if (whHi) whHi.value = d.hum_warn_high != null ? d.hum_warn_high : '';
-  document.getElementById('int-hum').value = d.hum_interval;
+  const intH = document.getElementById('int-hum');
+  if (intH) intH.value = d.hum_interval;
 
+  const lMn = document.getElementById('light-min');
+  if (lMn) lMn.value = d.light_min != null ? d.light_min : '';
+  const lMx = document.getElementById('light-max');
+  if (lMx) lMx.value = d.light_max != null ? d.light_max : '';
   const wlLo = document.getElementById('warn-light-low');
   if (wlLo) wlLo.value = d.light_warn_low != null ? d.light_warn_low : '';
   const wlHi = document.getElementById('warn-light-high');
   if (wlHi) wlHi.value = d.light_warn_high != null ? d.light_warn_high : '';
-  document.getElementById('int-light').value = d.light_interval;
+  const intL = document.getElementById('int-light');
+  if (intL) intL.value = d.light_interval;
 
-  document.getElementById('int-motion').value = d.motion_interval;
+  const intM = document.getElementById('int-motion');
+  if (intM) intM.value = d.motion_interval;
 
   const htg = document.getElementById('height-target');
   if (htg) htg.value = '';

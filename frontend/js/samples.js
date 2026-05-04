@@ -6,7 +6,36 @@
 let trays = [{ name: '', loc: '', germ: '', notes: '', qr: 'TM-S001' }];
 let selectedTray = 0;
 let selectedGalleryPlant = 0;
-let galleryPhotos = {}; // keyed by sample QR code
+let galleryPhotos = {}; // keyed by normalized sample QR — see normalizeGalleryQrKey() in api.js
+
+/** Resolved list for dropdown plant (handles key mismatch / legacy casing / whitespace). */
+function galleryPhotosListForPlant(plant) {
+  if (!plant || !galleryPhotos || typeof galleryPhotos !== 'object') return [];
+  var nk =
+    typeof normalizeGalleryQrKey === 'function'
+      ? normalizeGalleryQrKey(plant.qr)
+      : (function (r) {
+          if (r == null || r === '') return 'unknown';
+          var s = String(r).trim();
+          return s === '' ? 'unknown' : s.toUpperCase();
+        })(plant.qr);
+  if (galleryPhotos[nk] && galleryPhotos[nk].length) return galleryPhotos[nk];
+  var raw = plant.qr != null ? String(plant.qr).trim() : '';
+  if (raw && galleryPhotos[raw]) return galleryPhotos[raw];
+  var keys = Object.keys(galleryPhotos);
+  var normKey =
+    typeof normalizeGalleryQrKey === 'function'
+      ? normalizeGalleryQrKey
+      : function (k) {
+          if (k == null || k === '') return 'unknown';
+          var s = String(k).trim();
+          return s === '' ? 'unknown' : s.toUpperCase();
+        };
+  for (var i = 0; i < keys.length; i++) {
+    if (normKey(keys[i]) === nk) return galleryPhotos[keys[i]] || [];
+  }
+  return [];
+}
 
 /** Set by /api/sessions/active — only one open session system-wide */
 let activeRecordingSession = null;
@@ -31,6 +60,27 @@ function nextFreeTmQr(extraQrs) {
     n += 1;
   } while (used.has(candidate.toUpperCase()));
   return candidate;
+}
+
+/** Values must stay aligned with `index.html` #d-scenario and backend ScenarioName */
+function dummyScenarioBackfillSelectOptionsMarkup(selectedValue) {
+  var rows = [
+    ['stable', 'Stable — healthy chamber'],
+    ['heat_spike', 'Heat spike — sharp +°C pulses vs baseline'],
+    ['drought', 'Drought — humidity decays 60→25%'],
+    ['cold_night', 'Cold night — heater failure at night (-5°C)'],
+    ['sensor_drift', 'Sensor drift — slow +0.05°C/min on temp'],
+    ['temp_spike_random', 'FR10 demo: random rare temp spikes'],
+    ['light_spike_burst', 'FR10 demo: bright light bursts vs day curve'],
+    ['humidity_noise_storm', 'FR10 demo: high humidity variance (noise)'],
+    ['drift_ramp_fast', 'FR10 demo: fast temperature ramp (drift)'],
+    ['missing_temp_readings', 'FR10 demo: intermittent missing temperature'],
+    ['packet_loss', 'FR10 demo: stream gaps (dropout; stream only)'],
+  ];
+  return rows.map(function (r) {
+    var sel = r[0] === selectedValue ? ' selected' : '';
+    return '<option value="' + r[0] + '"' + sel + '>' + r[1] + '</option>';
+  }).join('');
 }
 
 // ── Tray list ────────────────────────────────
@@ -274,6 +324,7 @@ function buildGalleryTabs() {
   if (!sel) return;
   if (!trays.length) {
     sel.innerHTML = '<option value="">No samples</option>';
+    updateGalleryActionsBar();
     return;
   }
   const esc = function (s) {
@@ -288,6 +339,7 @@ function buildGalleryTabs() {
     return '<option value="' + i + '">' + esc(label) + '</option>';
   }).join('');
   sel.value = String(selectedGalleryPlant);
+  updateGalleryActionsBar();
 }
 
 function setGalleryPlant(i) {
@@ -447,17 +499,138 @@ async function openGalleryCaptureModal(captureId) {
   }
 }
 
+async function deleteGalleryCaptureOne(ev, captureId) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  if (captureId == null || typeof apiDelete !== 'function' || typeof confirmModal !== 'function') return;
+  var lid = galleryEscHtml('Capture #' + captureId);
+  var ok = await confirmModal({
+    title: 'Delete this photo?',
+    body: '<strong>' + lid + '</strong> will be removed permanently. This cannot be undone.',
+    danger: true,
+    confirmText: 'Delete photo',
+  });
+  if (!ok) return;
+  var plant = trays[selectedGalleryPlant];
+  if (!plant || !plant.id) {
+    fireAlert('warning', 'Cannot delete', 'This sample must be saved on the server.', 4000);
+    return;
+  }
+  try {
+    await apiDelete(CONFIG.ENDPOINTS.camera + '/' + encodeURIComponent(String(captureId)));
+    fireAlert('ok', 'Photo removed', 'Gallery updated.', 3000);
+    if (typeof fetchGallery === 'function') await fetchGallery(plant.id);
+    else buildGalleryTimeline();
+  } catch (e) {
+    fireAlert('warning', 'Delete failed', 'Could not remove the photo.', 5000);
+  }
+}
+
+async function deleteGalleryAllPhotosForPlant() {
+  if (typeof apiDelete !== 'function' || typeof confirmModal !== 'function') return;
+  var plant = trays[selectedGalleryPlant];
+  if (!plant) return;
+  var photos = galleryPhotosListForPlant(plant);
+  var n = photos.length;
+  if (!n) return;
+  if (!plant.id) {
+    fireAlert('warning', 'Cannot delete', 'This sample must be saved on the server.', 4000);
+    return;
+  }
+  var nameEsc = galleryEscHtml(plant.name || 'this sample');
+  var first = await confirmModal({
+    title: 'Delete all photos for this sample?',
+    body:
+      'All <strong>' +
+      n +
+      '</strong> captures for <strong>' +
+      nameEsc +
+      '</strong> will be removed permanently (database and files). This cannot be undone.',
+    danger: true,
+    confirmText: 'Continue',
+  });
+  if (!first) return;
+  var second = await confirmModal({
+    title: 'Final confirmation',
+    body: 'Type <code>DELETE</code> to remove every gallery photo for this sample.',
+    danger: true,
+    confirmText: 'Delete all photos',
+    requireType: 'DELETE',
+  });
+  if (!second) return;
+  try {
+    var res = await apiDelete(CONFIG.ENDPOINTS.camera + '?plant_id=' + encodeURIComponent(String(plant.id)));
+    var removed = res && res.deleted != null ? res.deleted : n;
+    fireAlert('ok', 'Photos removed', removed + ' photo(s) deleted from the Gallery.', 4000);
+    if (typeof fetchGallery === 'function') await fetchGallery(plant.id);
+    else buildGalleryTimeline();
+  } catch (e) {
+    fireAlert('warning', 'Delete failed', 'Could not remove photos.', 5000);
+  }
+}
+
 // ── Gallery timeline ──────────────────────────
+
+/** Sync Delete all toolbar (persisted in index.html Gallery tab). */
+function updateGalleryActionsBar() {
+  var btn = document.getElementById('btnGalleryDeleteAll');
+  var wrap = document.getElementById('galleryDeleteAllWrap');
+  var hint = document.getElementById('galleryActionsHint');
+  if (!btn) return;
+
+  var plant = trays[selectedGalleryPlant];
+  var photos = galleryPhotosListForPlant(plant);
+  var n = photos.length;
+  var hasServerId = !!(plant && plant.id);
+  var enabled = hasServerId && n > 0;
+  btn.disabled = !enabled;
+  btn.removeAttribute('title');
+
+  var tip =
+    !plant || !plant.qr
+      ? 'Pick a sample in the Gallery dropdown.'
+      : !hasServerId
+        ? 'Save this sample on the server (Manage Samples) before deleting captures.'
+        : n === 0
+          ? 'No gallery captures loaded for this QR yet — try Refresh above, or capture photos while this plant is selected.'
+          : 'Delete all ' +
+            n +
+            ' captures for "' +
+            (plant.name || plant.qr) +
+            '" (with confirmation)';
+
+  btn.setAttribute('aria-label', tip);
+  if (wrap) {
+    wrap.setAttribute('title', tip);
+  }
+
+  if (hint) {
+    if (!plant) {
+      hint.textContent = '';
+    } else if (!hasServerId) {
+      hint.textContent = 'Save the sample first to manage gallery deletes.';
+    } else if (n === 0) {
+      hint.textContent = '';
+    } else {
+      hint.textContent = '\u2192 Deletes every photo in the timeline below for this sample.';
+    }
+  }
+}
 
 function buildGalleryTimeline() {
   const header   = document.getElementById('galleryPlantHeader');
   const timeline = document.getElementById('galleryTimeline');
-  if (!header || !timeline) return;
+  if (!header || !timeline) {
+    updateGalleryActionsBar();
+    return;
+  }
 
   const plant      = trays[selectedGalleryPlant];
-  if (!plant) return;
+  if (!plant) {
+    updateGalleryActionsBar();
+    return;
+  }
 
-  const photos      = galleryPhotos[plant.qr] || [];
+  const photos      = galleryPhotosListForPlant(plant);
   const photoCount  = photos.length;
   const latestHeight = photoCount ? photos[0].height_cm : null;
   const firstHeight  = photoCount ? photos[photos.length - 1].height_cm : null;
@@ -488,6 +661,7 @@ function buildGalleryTimeline() {
           Make sure the QR code <strong>${plant.qr}</strong> is assigned to this plant.
         </div>
       </div>`;
+    updateGalleryActionsBar();
     return;
   }
 
@@ -529,6 +703,7 @@ function buildGalleryTimeline() {
     var badge = galleryBadgeMeta(p.trigger || '');
     return (
             '<div class="gallery-timeline-item" role="listitem">' +
+            '<div class="gallery-timeline-item-row">' +
             '<button type="button" class="gallery-capture-row" onclick="openGalleryCaptureModal(' +
             p.id +
             ')">' +
@@ -548,12 +723,18 @@ function buildGalleryTimeline() {
             '<span class="gallery-capture-h">' +
             hCell +
             '</span>' +
-            '</div></button></div>'
+            '</div></button>' +
+            '<button type="button" class="gallery-capture-delete" aria-label="Delete this photo" title="Remove this photo from the Gallery" onclick="deleteGalleryCaptureOne(event,' +
+            p.id +
+            ')"><span class="gallery-capture-delete-text">Remove</span></button>' +
+            '</div></div>'
     );
         }).join('')}
       </div>
     </div>`
   ).join('');
+
+  updateGalleryActionsBar();
 }
 
 // ── Telemetry recording (one active sample system-wide) ─────────────────
@@ -618,9 +799,12 @@ async function refreshActiveRecording() {
     activeRecordingSession = sessions[0] || null;
     if (st) {
       if (activeRecordingSession) {
+        const iv = typeof activeRecordingSession.stream_interval_sec === 'number'
+          ? Number(activeRecordingSession.stream_interval_sec)
+          : 1;
         const dummy = activeRecordingSession.dummy_stream
           ? ' (DUMMY: ' + (activeRecordingSession.scenario || 'stable') +
-            ' @ ' + (activeRecordingSession.stream_interval_sec || 5) + 's)'
+            ' @ ' + (iv >= 1 ? iv.toFixed(1) + 's' : Math.round(iv * 1000) + 'ms') + ')'
           : '';
         st.textContent = 'Recording: session #' + activeRecordingSession.id +
           ' \u2192 plant #' + activeRecordingSession.plant_id + dummy + '. Stop when finished.';
@@ -658,14 +842,18 @@ async function startSampleRecording() {
   if (devSel && devSel.value) payload.device_id = parseInt(devSel.value, 10);
   payload.scenario           = (scenarioEl && scenarioEl.value) || 'stable';
   payload.dummy_stream       = !!(dummyEl && dummyEl.checked);
-  payload.stream_interval_sec = Math.max(1, Math.min(300,
-    parseInt((intervalEl && intervalEl.value) || '5', 10) || 5));
+  var rawIv = parseFloat((intervalEl && intervalEl.value) || '1');
+  if (!(rawIv >= 0.2) || !(rawIv <= 300)) rawIv = 1;
+  payload.stream_interval_sec = Math.round(rawIv * 1000) / 1000;
 
   try {
     if (typeof apiPost !== 'function') throw new Error('api');
     await apiPost(CONFIG.ENDPOINTS.sessionsStart, payload);
+    var showIv = payload.stream_interval_sec >= 1
+      ? String(payload.stream_interval_sec) + 's'
+      : String(Math.round(payload.stream_interval_sec * 1000)) + 'ms';
     const tail = payload.dummy_stream
-      ? ' Dummy data engine running scenario \u201c' + payload.scenario + '\u201d every ' + payload.stream_interval_sec + 's.'
+      ? ' Dummy data engine running scenario \u201c' + payload.scenario + '\u201d every ' + showIv + '.'
       : '';
     fireAlert('ok', 'Recording started',
       'Starting a new recording ends any other active recording. Telemetry tags to this sample until you stop.' + tail,
@@ -706,11 +894,7 @@ async function backfillDummyHistory() {
       '</label>' +
       '<label>Scenario' +
         '<select id="bf-scenario" style="width:100%;padding:6px 8px;margin-top:4px;border:1px solid rgba(0,0,0,.2);border-radius:6px;">' +
-          '<option value="stable">Stable</option>' +
-          '<option value="heat_spike" selected>Heat spike (anomaly fodder)</option>' +
-          '<option value="drought">Drought</option>' +
-          '<option value="cold_night">Cold night</option>' +
-          '<option value="sensor_drift">Sensor drift</option>' +
+          dummyScenarioBackfillSelectOptionsMarkup('heat_spike') +
         '</select>' +
       '</label>' +
       '<label>Sample every (seconds)' +
@@ -718,7 +902,7 @@ async function backfillDummyHistory() {
       '</label>' +
       '<div style="font-size:11px;color:var(--bark-mid);margin-top:4px;line-height:1.5;">' +
         'These rows are inserted in one transaction and tagged directly to <strong>' + (t.name || ('Sample ' + (selectedTray + 1))) + '</strong>. ' +
-        'They appear in the Graphs page immediately. Use Clear telemetry to remove them later.' +
+        'They appear on Graphs immediately. Detections are not run on bulk insert\u2014use <strong>POST /api/anomalies/reprocess</strong> afterward if you want FR10 flags. <em>packet_loss</em> only creates gaps during live dummy streaming (not here). Clear telemetry removes rows.' +
       '</div>' +
     '</div>';
 

@@ -16,6 +16,8 @@ from config import settings
 from models.plant import Plant
 from models.plant_capture import PlantCapture
 
+logger = logging.getLogger(__name__)
+
 
 def storage_root() -> Path:
     raw = (settings.CAPTURE_STORAGE_DIR or "").strip()
@@ -118,3 +120,56 @@ def absolute_file_path(capture: PlantCapture) -> Path:
     except ValueError:
         raise ValueError("invalid capture path")
     return p
+
+
+def _unlink_capture_file_optional(path: Optional[Path]) -> None:
+    if path is None:
+        return
+    try:
+        if path.is_file():
+            path.unlink()
+    except OSError as e:
+        logger.warning("could not unlink capture file %s: %s", path, e)
+
+
+def delete_capture_for_owner(db: Session, capture_id: int, owner_user_id: int) -> bool:
+    row = get_capture_for_owner(db, capture_id, owner_user_id)
+    if row is None:
+        return False
+    disk_path: Optional[Path]
+    try:
+        disk_path = absolute_file_path(row)
+    except ValueError:
+        disk_path = None
+    db.delete(row)
+    db.commit()
+    _unlink_capture_file_optional(disk_path)
+    return True
+
+
+def delete_all_captures_for_plant(db: Session, plant_id: int, owner_user_id: int) -> tuple[bool, int]:
+    """
+    If the plant exists and belongs to owner_user_id, delete every PlantCapture row and unlink files.
+    Returns (plant_owned_ok, deleted_count).
+    """
+    owned = db.query(Plant.id).filter(Plant.id == plant_id, Plant.owner_id == owner_user_id).first()
+    if owned is None:
+        return False, 0
+
+    caps = db.query(PlantCapture).filter(PlantCapture.plant_id == plant_id).all()
+    paths: List[Optional[Path]] = []
+    for cap in caps:
+        try:
+            paths.append(absolute_file_path(cap))
+        except ValueError:
+            paths.append(None)
+
+    deleted = len(caps)
+    for cap in caps:
+        db.delete(cap)
+    db.commit()
+
+    for p in paths:
+        _unlink_capture_file_optional(p)
+
+    return True, deleted

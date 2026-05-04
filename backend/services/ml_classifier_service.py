@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List
 
 import joblib
+import numpy as np
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -57,20 +59,84 @@ def predictor_ready() -> bool:
     return load_classifier_bundle() is not None
 
 
+# sklearn artifact often predicts "seasonal" for daylight diurnal+sudden outliers.
+# Bump obvious single-step outliers to spike using the same intuition as SpikeDetector z vs trailing std.
+
+_SPIKE_HINT_Z = 4.0
+_HINT_CHAN = (
+    ("d_temp", "roll_std_temp", 0.5, 2.5),
+    ("d_hum", "roll_std_hum", 2.0, 7.0),
+    ("d_light", "roll_std_light", 20.0, 65.0),
+)
+
+
+def _scale_with_floor(roll_std_val: Any, baseline_noise: float) -> float:
+    floor = max(baseline_noise / 4.0, 1e-9)
+    try:
+        rs = float(roll_std_val)
+        if math.isfinite(rs) and rs > 0:
+            return max(rs, floor)
+    except (TypeError, ValueError):
+        pass
+    return floor
+
+
+def ml_row_signals_instantaneous_spike(feature_map: Dict[str, float]) -> bool:
+    """True when any channel jumps vs trailing-window scale similarly to SpikeDetector WARNING gate."""
+
+    for d_key, rs_key, baseline, abs_min in _HINT_CHAN:
+        try:
+            d = float(feature_map[d_key])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not math.isfinite(d) or abs(d) < abs_min:
+            continue
+        scale = _scale_with_floor(feature_map.get(rs_key), baseline)
+        if abs(d) / scale >= _SPIKE_HINT_Z:
+            return True
+    return False
+
+
+def _apply_spike_overrides_ml(labels: List[str], X: np.ndarray, feature_names: tuple[str, ...]) -> List[str]:
+    out: List[str] = []
+    for i, pred in enumerate(labels):
+        if pred == "spike":
+            out.append("spike")
+            continue
+        m: Dict[str, float] = {}
+        try:
+            for j, name in enumerate(feature_names):
+                v = float(X[i, j])
+                m[name] = v if math.isfinite(v) else math.nan
+        except Exception:
+            out.append(pred)
+            continue
+        if ml_row_signals_instantaneous_spike(m):
+            out.append("spike")
+        else:
+            out.append(pred)
+    return out
+
+
 def classify_telemetry_sequence(rows: List[Any]) -> tuple[list[str], Dict[str, int]]:
     """
     Rows sorted ascending by timestamp for one plant.
-    Returns (per_row predicted labels list, aggregate counts dict).
+
+    After sklearn predicts each row, a lightweight spike refinement runs: abrupt single-step jumps
+    (vs trailing-window std floor, similar to SpikeDetector) relabel burst rows—especially useful when
+    the tree model votes *seasonal* on diurnal traces with injected light spikes.
+
+    Returns (per_row labels, aggregate Counter dict).
     """
     bundle = load_classifier_bundle()
     if not bundle or not rows:
         return [], {}
     pipe = bundle["pipeline"]
-    from services.ml_telemetry_features import telemetry_rows_to_matrix
+    from services.ml_telemetry_features import FEATURE_NAMES, telemetry_rows_to_matrix
 
     X = telemetry_rows_to_matrix(rows)
     yhat = pipe.predict(X)
-    labels = [str(c) for c in yhat]
+    labels = _apply_spike_overrides_ml([str(c) for c in yhat], X, FEATURE_NAMES)
     counts = dict(Counter(labels))
     return labels, counts
 

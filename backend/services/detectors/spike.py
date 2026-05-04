@@ -9,6 +9,8 @@ Two layers of protection:
 
 from __future__ import annotations
 
+from typing import Optional
+
 import numpy as np
 
 from enums import AnomalyType, AlertSeverity
@@ -19,6 +21,14 @@ HARD_BOUNDS: dict[str, tuple[float, float]] = {
     "temperature": (-10.0, 60.0),
     "humidity": (0.0, 100.0),
     "light": (0.0, 1023.0),
+}
+
+# Secondary gate: abrupt step vs previous reading vs noise floor alone (covers diurnal ramps
+# where rolling mean/variance absorbs the anomaly so classical z-vs-mean stays low).
+STEP_SPIKE_ABS_MIN: dict[str, float] = {
+    "temperature": 2.8,
+    "humidity": 7.5,
+    "light": 65.0,
 }
 
 
@@ -124,13 +134,63 @@ class SpikeDetector(BaseDetector):
         if self._min_abs_delta > 0 and abs(value - mean) < self._min_abs_delta:
             return None
 
-        if z <= self._warning_z:
+        if z > self._warning_z:
+            severity = AlertSeverity.CRITICAL if z > self._critical_z else AlertSeverity.WARNING
+            direction = "above" if value > mean else "below"
+            scale_label = "MADσ" if self._use_mad else "σ"
+
+            return AnomalyEvent(
+                timestamp=timestamp,
+                session_id=session_id,
+                variable=variable,
+                anomaly_type=AnomalyType.SPIKE,
+                severity=severity,
+                message=(
+                    f"{variable} spike: {value:.1f} {profile.unit} "
+                    f"({z:.1f}{scale_label} {direction} prior mean {mean:.1f})"
+                ),
+                detail={
+                    "value": round(value, 2),
+                    "mean": round(mean, 2),
+                    "scale": round(scale, 4),
+                    "z_score": round(z, 2),
+                    "prior_n": int(priors.size),
+                    "basis": "prior_window_mean",
+                },
+            )
+
+        return self._step_jump_spike(
+            variable=variable,
+            value=value,
+            session_id=session_id,
+            profile=profile,
+            timestamp=timestamp,
+            buffer_values=values,
+        )
+
+    def _step_jump_spike(
+        self,
+        *,
+        variable: str,
+        value: float,
+        session_id: int,
+        profile: SensorProfile,
+        timestamp,
+        buffer_values: list[float],
+    ) -> Optional[AnomalyEvent]:
+        """Catch tall single-tick steps that rolling mean/variance dilute below WARNING z."""
+
+        min_jump = STEP_SPIKE_ABS_MIN.get(variable)
+        if min_jump is None or len(buffer_values) < 2:
             return None
-
-        severity = AlertSeverity.CRITICAL if z > self._critical_z else AlertSeverity.WARNING
-        direction = "above" if value > mean else "below"
-        scale_label = "MADσ" if self._use_mad else "σ"
-
+        prev_v = float(buffer_values[-2])
+        jmp = abs(value - prev_v)
+        floor_scale = profile.baseline_noise / self._std_floor_denom
+        z_step = jmp / floor_scale if floor_scale else 0.0
+        if jmp < min_jump or z_step <= self._warning_z:
+            return None
+        severity = AlertSeverity.CRITICAL if z_step > self._critical_z else AlertSeverity.WARNING
+        direction = "above" if value > prev_v else "below"
         return AnomalyEvent(
             timestamp=timestamp,
             session_id=session_id,
@@ -138,14 +198,15 @@ class SpikeDetector(BaseDetector):
             anomaly_type=AnomalyType.SPIKE,
             severity=severity,
             message=(
-                f"{variable} spike: {value:.1f} {profile.unit} "
-                f"({z:.1f}{scale_label} {direction} prior mean {mean:.1f})"
+                f"{variable} spike ({direction} prior reading): {value:.1f} {profile.unit} "
+                f"(Δ {jmp:.1f}, {z_step:.1f}σ vs sensor noise floor)"
             ),
             detail={
                 "value": round(value, 2),
-                "mean": round(mean, 2),
-                "scale": round(scale, 4),
-                "z_score": round(z, 2),
-                "prior_n": int(priors.size),
+                "prior_reading": round(prev_v, 2),
+                "step_abs": round(jmp, 2),
+                "scale_floor": round(floor_scale, 4),
+                "z_step": round(z_step, 2),
+                "basis": "step_vs_prior_reading",
             },
         )

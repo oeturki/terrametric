@@ -2,6 +2,15 @@
 //  api.js — All communication with the server
 // ─────────────────────────────────────────────
 
+/** Normalized map key for `galleryPhotos` (must stay aligned with lookups in samples.js). */
+function normalizeGalleryQrKey(raw) {
+  if (raw == null) return 'unknown';
+  var s = String(raw).trim();
+  if (s === '') return 'unknown';
+  if (s.toLowerCase() === 'unknown') return 'unknown';
+  return s.toUpperCase();
+}
+
 // ── Low-level fetch helpers ──────────────────
 
 async function apiFetch(path) {
@@ -159,7 +168,7 @@ function mirrorGraphFromAnomalyDup() {
 
 function maybeRefreshAnomaliesAfterGraphFilterChange() {
   if (!document.getElementById('tab-anomalies')?.classList.contains('active')) return;
-  if (typeof fetchAnomalies === 'function') fetchAnomalies();
+  /** When this tab is active, fetchTelemetry() awaits fetchAnomalies() — avoid racing with stale anomSimReadings here. */
   if (typeof refreshAnomalyPlantIdSessionHint === 'function') refreshAnomalyPlantIdSessionHint();
 }
 
@@ -299,6 +308,8 @@ function readingsArrayToTelemetryPayload(readings) {
     plant_height: readings.map(function (r) {
       return r.height != null ? r.height : r.plant_height;
     }),
+    bin_seconds: 0,
+    row_count: readings.length,
   };
 }
 
@@ -355,9 +366,13 @@ async function fetchTelemetry() {
         let line;
         if (activeSess.dummy_stream) {
           const scen = activeSess.scenario || 'stable';
-          const tick = activeSess.stream_interval_sec
-            ? ' every ' + activeSess.stream_interval_sec + 's'
-            : '';
+          let tick = '';
+          if (activeSess.stream_interval_sec != null && activeSess.stream_interval_sec !== '') {
+            const iv = Number(activeSess.stream_interval_sec);
+            if (!isNaN(iv)) {
+              tick = iv >= 1 ? (' every ' + iv + 's') : (' every ' + Math.round(iv * 1000) + 'ms');
+            }
+          }
           line = 'Dummy stream · session #' + activeSess.id + ' · scenario \u201c' + scen + '\u201d' + tick +
             ' (server-generated readings).';
         } else {
@@ -402,6 +417,7 @@ async function fetchTelemetry() {
     if (typeof syncAnomalyChartsFromTelemetryPayload === 'function'
         && document.getElementById('tab-anomalies')?.classList.contains('active')) {
       syncAnomalyChartsFromTelemetryPayload(d);
+      if (typeof fetchAnomalies === 'function') await fetchAnomalies();
     }
   } catch {
     const hint = document.getElementById('graphFilterHint');
@@ -421,6 +437,7 @@ async function fetchTelemetry() {
     if (typeof syncAnomalyChartsFromTelemetryPayload === 'function'
         && document.getElementById('tab-anomalies')?.classList.contains('active')) {
       syncAnomalyChartsFromTelemetryPayload(dFb);
+      if (typeof fetchAnomalies === 'function') await fetchAnomalies();
     }
   }
 }
@@ -732,7 +749,7 @@ async function fetchGallery(optPlantId) {
     const groupByQr = function (list) {
       const o = {};
       list.forEach(function (p) {
-        const key = p.sample_qr || 'unknown';
+        const key = normalizeGalleryQrKey(p.sample_qr);
         if (!o[key]) o[key] = [];
         o[key].push(p);
       });
@@ -749,7 +766,9 @@ async function fetchGallery(optPlantId) {
     }
 
     if (typeof buildGalleryTimeline === 'function') buildGalleryTimeline();
+    if (typeof updateGalleryActionsBar === 'function') updateGalleryActionsBar();
   } catch (_) {
     if (typeof buildGalleryTimeline === 'function') buildGalleryTimeline();
+    if (typeof updateGalleryActionsBar === 'function') updateGalleryActionsBar();
   }
 }

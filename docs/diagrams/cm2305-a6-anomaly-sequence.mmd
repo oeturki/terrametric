@@ -1,0 +1,9 @@
+sequenceDiagram
+  participant IN as Telemetry ingest
+  participant ROW as Telemetry row
+  participant RT as anomaly_runtime.run_detection_and_persist
+  participant EV as anomaly_detection_events
+  IN->>ROW: persist reading
+  Note over ROW,EV: plant_id required for live anomaly persistence
+  ROW->>RT: detectors on stored row
+  RT->>EV: insert persisted events if fired

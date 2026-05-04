@@ -185,29 +185,126 @@
             This recording only
           </label>
           <button class="btn btn-ghost" type="button" onclick="resetAllZoom()" title="Reset zoom on every chart">Reset zoom</button>
+          <label class="graph-moving-avg-label" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--bark-mid);cursor:pointer;white-space:nowrap;">
+            <input type="checkbox" id="graphMovingAvg" onchange="onGraphMovingAvgToggle()">
+            Moving average overlay
+          </label>
           <span style="flex:1"></span>
           <span style="font-size:11px;color:var(--bark-mid);" id="graphRowMeta"></span>
         </div>
+        <p id="graphDenseBarHint" style="display:none;margin:8px 0 0;font-size:11px;color:#a65c2a;max-width:52rem;line-height:1.45;"></p>
         <p id="graphActiveSessionHint" style="display:none;margin:8px 0 0;font-size:11px;color:var(--olive);max-width:52rem;line-height:1.55;"></p>
         <p id="graphFilterHint" style="display:none;margin:10px 0 0;font-size:11px;color:var(--bark-mid);max-width:52rem;line-height:1.55;"></p>
+
+        <div class="graph-heatmap-panel card" style="margin-bottom:18px;padding:14px 16px;border-radius:12px;background:#fdfcf9;border:1px solid var(--cream-dark);">
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:10px;">
+            <span class="card-title" style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;">Calendar heatmap (mean)</span>
+            <label class="graph-heatmap-label" style="font-size:11px;color:var(--bark-mid);">Metric
+              <select class="select-pill graph-viz-select" id="graphHeatmapMetric" style="margin-left:6px;">
+                <option value="temp" selected>Temperature</option>
+                <option value="hum">Humidity</option>
+                <option value="light">Light</option>
+                <option value="height">Plant height</option>
+              </select>
+            </label>
+          </div>
+          <div id="graphHeatmapWrap" class="graph-heatmap-wrap" aria-live="polite"><div style="font-size:11px;color:var(--bark-mid);">Load telemetry to see hourly pattern by day.</div></div>
+        </div>
+
       <div class="graphs-grid">
           <div class="graph-card">
-            <div class="card-header"><span class="card-title">🌡 Temperature (°C)</span><span id="tempLive" style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;"></span></div>
+            <div class="card-header">
+              <span class="card-title">🌡 Temperature (°C)</span>
+              <div class="graph-card-controls">
+                <select class="select-pill graph-viz-select" id="graphDisplayTemp" title="Temperature chart type">
+                  <option value="line" selected>Line</option>
+                  <option value="area">Area</option>
+                  <option value="bar">Bar</option>
+                  <option value="scatter">Scatter</option>
+                </select>
+                <select class="select-pill graph-viz-select" id="graphVizTemp" title="Temperature chart presentation" aria-label="Temperature chart style">
+                  <option value="smooth_filled" selected>Smooth filled line</option>
+                  <option value="outline">Outline (no fill)</option>
+                  <option value="step">Stepped (hold)</option>
+                  <option value="straight">Straight segments</option>
+                  <option value="points">Points</option>
+                  <option value="area_emphasis">Area emphasis</option>
+                </select>
+                <span id="tempLive" class="graph-live-val"></span>
+              </div>
+            </div>
             <div id="chartTempWrap"><div class="skel" style="height:150px;border-radius:8px;"></div></div>
             <div class="graph-stats" id="stats_temp"></div>
           </div>
           <div class="graph-card">
-            <div class="card-header"><span class="card-title">💧 Humidity (%RH)</span><span id="humLive" style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;"></span></div>
+            <div class="card-header">
+              <span class="card-title">💧 Humidity (%RH)</span>
+              <div class="graph-card-controls">
+                <select class="select-pill graph-viz-select" id="graphDisplayHum" title="Humidity chart type">
+                  <option value="line" selected>Line</option>
+                  <option value="area">Area</option>
+                  <option value="bar">Bar</option>
+                  <option value="scatter">Scatter</option>
+                </select>
+                <select class="select-pill graph-viz-select" id="graphVizHum" title="Humidity chart presentation" aria-label="Humidity chart style">
+                  <option value="smooth_filled" selected>Smooth filled line</option>
+                  <option value="outline">Outline (no fill)</option>
+                  <option value="step">Stepped (hold)</option>
+                  <option value="straight">Straight segments</option>
+                  <option value="points">Points</option>
+                  <option value="area_emphasis">Area emphasis</option>
+                </select>
+                <span id="humLive" class="graph-live-val"></span>
+              </div>
+            </div>
             <div id="chartHumWrap"><div class="skel" style="height:150px;border-radius:8px;"></div></div>
             <div class="graph-stats" id="stats_hum"></div>
           </div>
           <div class="graph-card">
-            <div class="card-header"><span class="card-title">☀ Light (lux)</span><span id="lightLive" style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;"></span></div>
+            <div class="card-header">
+              <span class="card-title">☀ Light (lux)</span>
+              <div class="graph-card-controls">
+                <select class="select-pill graph-viz-select" id="graphDisplayLight" title="Light chart type">
+                  <option value="line" selected>Line</option>
+                  <option value="area">Area</option>
+                  <option value="bar">Bar</option>
+                  <option value="scatter">Scatter</option>
+                </select>
+                <select class="select-pill graph-viz-select" id="graphVizLight" title="Light chart presentation" aria-label="Light chart style">
+                  <option value="smooth_filled" selected>Smooth filled line</option>
+                  <option value="outline">Outline (no fill)</option>
+                  <option value="step">Stepped (hold)</option>
+                  <option value="straight">Straight segments</option>
+                  <option value="points">Points</option>
+                  <option value="area_emphasis">Area emphasis</option>
+                </select>
+                <span id="lightLive" class="graph-live-val"></span>
+              </div>
+            </div>
             <div id="chartLightWrap"><div class="skel" style="height:150px;border-radius:8px;"></div></div>
             <div class="graph-stats" id="stats_light"></div>
           </div>
           <div class="graph-card">
-            <div class="card-header"><span class="card-title">📏 Plant Height (cm)</span><span id="heightLive" style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;"></span></div>
+            <div class="card-header">
+              <span class="card-title">📏 Plant Height (cm)</span>
+              <div class="graph-card-controls">
+                <select class="select-pill graph-viz-select" id="graphDisplayHeight" title="Height chart type">
+                  <option value="line" selected>Line</option>
+                  <option value="area">Area</option>
+                  <option value="bar">Bar</option>
+                  <option value="scatter">Scatter</option>
+                </select>
+                <select class="select-pill graph-viz-select" id="graphVizHeight" title="Height chart presentation" aria-label="Height chart style">
+                  <option value="smooth_filled" selected>Smooth filled line</option>
+                  <option value="outline">Outline (no fill)</option>
+                  <option value="step">Stepped (hold)</option>
+                  <option value="straight">Straight segments</option>
+                  <option value="points">Points</option>
+                  <option value="area_emphasis">Area emphasis</option>
+                </select>
+                <span id="heightLive" class="graph-live-val"></span>
+              </div>
+            </div>
             <div id="chartHeightWrap"><div class="skel" style="height:150px;border-radius:8px;"></div></div>
             <div class="graph-stats" id="stats_height"></div>
           </div>
@@ -222,6 +319,12 @@
             <option value="">Loading…</option>
           </select>
           <div style="font-size:10px;color:var(--bark-mid);margin-left:auto;">Captured images (JPEG from Pi)</div>
+        </div>
+        <div id="galleryActionsBar" class="gallery-actions-bar">
+          <span id="galleryActionsHint" class="gallery-actions-hint"></span>
+          <span id="galleryDeleteAllWrap" class="gallery-delete-all-tooltip-wrap">
+            <button type="button" id="btnGalleryDeleteAll" class="btn btn-danger gallery-delete-all-btn" onclick="deleteGalleryAllPhotosForPlant()" disabled aria-label="">Delete all photos</button>
+          </span>
         </div>
         <div id="galleryPlantHeader"></div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
@@ -270,7 +373,7 @@
 
         <section class="anom-sim-toolbar anom-ml-toolbar" aria-label="ML classifier on stored telemetry">
           <p class="anom-ml-scope-note" style="width:100%;margin:0 0 6px;font-size:10px;color:var(--anom-muted);line-height:1.5;">
-            <strong>ML scan</strong> results show in the <strong>predicted labels</strong> row below — not in the grey summary cards (those are rule-engine events from the API).
+            <strong>ML scan</strong> results show in the <strong>predicted labels</strong> row below — not in the grey summary cards (those are rule-engine events from the API). Bursts that resemble daylight cycles may still be marked <strong>spike</strong> after an extra sudden-jump pass aligned with FR10 thresholds.
           </p>
           <div class="anom-sim-toolbar__group">
             <span class="anom-kicker">ML pass (stored data)</span>
@@ -291,6 +394,9 @@
         <div id="mlCountsPanel" class="anom-ml-counts-panel" aria-live="polite">
           <p class="anom-ml-counts-msg" style="margin:0 0 8px;">Run <strong>ML scan</strong> to see per-row sklearn labels and counts. Works with any number of stored rows (including a short 1-minute recording). If you see <strong>0 rows scored</strong>, widen the ML hours dropdown or check that telemetry is tagged for this sample (<code>plant_id</code> / recording session).</p>
         </div>
+
+        <p class="anom-ml-scope-note" style="margin:10px 0 4px;font-size:10px;color:var(--anom-muted);line-height:1.5;">
+          <strong>Grey stats below</strong> count rows from <strong>FR10 rule detectors</strong> saved via <code>/api/anomalies</code> (live ingest or <strong>Reprocess window</strong>). They stay at <strong>0</strong> if only the ML scan ran — ML labels live in the row above.</p>
 
         <section class="anomaly-summary anom-summary-grid" aria-label="Detection counts">
           <div class="anom-card anom-stat-card"><div class="anom-stat-card__icon" aria-hidden="true">∑</div><div class="anom-stat-card__body"><div class="anom-count anom-stat-card__value" id="anomTotal">--</div><div class="anom-label">Total events</div></div></div>
@@ -405,7 +511,7 @@
           <div id="anomalyBody">
             <div class="anom-placeholder">
               <span class="anom-placeholder__glyph" aria-hidden="true">◇</span>
-              <p class="anom-placeholder__text">No events loaded. Connect live telemetry with <code>plant_id</code>, widen the window, use <strong>Reprocess window</strong>, or start a dummy stream in Manage Samples.</p>
+              <p class="anom-placeholder__text">No events loaded. Start a dummy stream (Manage Samples) with an <strong>FR10 demo</strong> scenario such as Bright light bursts, pick <strong>this sample</strong> in the dropdown above, set sensor filter to <strong>All sensors</strong>, wait ~30s, then refresh. Backfill rows need <strong>Reprocess window</strong> before anomalies appear.</p>
             </div>
           </div>
         </div>
@@ -440,26 +546,26 @@
     <div class="sensor-grid">
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">🌡</div><div class="sensor-name">Temperature</div></div>
-        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="temp-min" value="20" min="-100" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="temp-max" value="30" min="-100" max="100"><span class="unit">°C</span></div></div>
-        <div class="field-row"><span class="field-label">Tolerance Thresholds</span><div class="range-inputs"><input class="field-input" type="number" step="0.1" id="warn-temp-low" value="10" min="-100" max="100" placeholder="low °C" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"><span class="range-sep">to</span><input class="field-input" type="number" step="0.1" id="warn-temp-high" value="35" min="-100" max="100" placeholder="high °C" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div></div>
-        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-temp" value="60" placeholder="seconds"></div>
+        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="temp-min" value="18" min="-100" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="temp-max" value="26" min="-100" max="100"><span class="unit">°C</span></div></div>
+        <div class="field-row"><span class="field-label">Tolerance Thresholds</span><div class="range-inputs"><input class="field-input" type="number" step="0.1" id="warn-temp-low" value="16" min="-100" max="100" placeholder="low °C" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"><span class="range-sep">to</span><input class="field-input" type="number" step="0.1" id="warn-temp-high" value="28" min="-100" max="100" placeholder="high °C" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div></div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-temp" value="120" placeholder="seconds"></div>
       </div>
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">💧</div><div class="sensor-name">Humidity</div></div>
-        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="humid-min" value="20" min="0" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="humid-max" value="65" min="0" max="100"><span class="unit">%</span></div></div>
-        <div class="field-row"><span class="field-label">Tolerance Thresholds</span><div class="range-inputs"><input class="field-input" type="number" step="0.1" id="warn-hum-low" value="10" min="0" max="100" placeholder="low %" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"><span class="range-sep">to</span><input class="field-input" type="number" step="0.1" id="warn-hum-high" value="80" min="0" max="100" placeholder="high %" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div></div>
-        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-hum" value="30" placeholder="seconds"></div>
+        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="humid-min" value="40" min="0" max="100"><span class="range-sep">to</span><input type="number" step="0.1" id="humid-max" value="60" min="0" max="100"><span class="unit">%</span></div></div>
+        <div class="field-row"><span class="field-label">Tolerance Thresholds</span><div class="range-inputs"><input class="field-input" type="number" step="0.1" id="warn-hum-low" value="35" min="0" max="100" placeholder="low %" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"><span class="range-sep">to</span><input class="field-input" type="number" step="0.1" id="warn-hum-high" value="68" min="0" max="100" placeholder="high %" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div></div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-hum" value="120" placeholder="seconds"></div>
       </div>
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">☀</div><div class="sensor-name">Light</div></div>
-        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="light-min" value="5000" min="0" max="40000"><span class="range-sep">to</span><input type="number" step="0.1" id="light-max" value="25000" min="0" max="40000"><span class="unit">lux</span></div></div>
-        <div class="field-row"><span class="field-label">Tolerance Thresholds</span><div class="range-inputs"><input class="field-input" type="number" step="1" id="warn-light-low" value="3000" min="0" max="40000" placeholder="low lux" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"><span class="range-sep">to</span><input class="field-input" type="number" step="1" id="warn-light-high" value="30000" min="0" max="40000" placeholder="high lux" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div></div>
-        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-light" value="15" placeholder="seconds"></div>
+        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="light-min" value="200" min="0" max="40000"><span class="range-sep">to</span><input type="number" step="0.1" id="light-max" value="2500" min="0" max="40000"><span class="unit">lux</span></div></div>
+        <div class="field-row"><span class="field-label">Tolerance Thresholds</span><div class="range-inputs"><input class="field-input" type="number" step="1" id="warn-light-low" value="120" min="0" max="40000" placeholder="low lux" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"><span class="range-sep">to</span><input class="field-input" type="number" step="1" id="warn-light-high" value="3200" min="0" max="40000" placeholder="high lux" onchange="if(typeof fetchTelemetry==='function') fetchTelemetry();"></div></div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-light" value="120" placeholder="seconds"></div>
       </div>
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">👁</div><div class="sensor-name">Motion (PIR)</div></div>
-        <div class="field-row"><span class="field-label">Desired Thresholds</span><div class="range-inputs"><input type="number" step="0.1" id="motion-min" value="0" min="0" max="1"><span class="range-sep">to</span><input type="number" step="0.1" id="motion-max" value="1" min="0" max="1"><span class="unit"></span></div></div>
-        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-motion" value="10" placeholder="seconds"></div>
+        <div style="font-size:10px;color:var(--bark-mid);line-height:1.45;margin:-4px 0 12px;padding-left:2px;">Movement is treated as binary (detected vs clear). Unlike temperature, humidity, and light, there are <strong>no</strong> desired or tolerance thresholds — only sampling interval.</div>
+        <div class="field-row"><span class="field-label">Read Interval</span><input class="field-input" id="int-motion" value="60" placeholder="seconds"></div>
       </div>
       <div class="sensor-card">
         <div class="sensor-header"><div class="sensor-icon-bg">📏</div><div class="sensor-name">Height (Ultrasonic)</div></div>
@@ -548,10 +654,16 @@
           <div class="detail-field" style="margin-top:6px;"><label>Scenario (dummy stream only)</label>
             <select class="detail-input" id="d-scenario">
               <option value="stable" selected>Stable — healthy chamber</option>
-              <option value="heat_spike">Heat spike — periodic +6&deg;C bursts</option>
+              <option value="heat_spike">Heat spike — sharp +°C pulses vs baseline</option>
               <option value="drought">Drought — humidity decays 60&rarr;25%</option>
               <option value="cold_night">Cold night — heater failure at night (-5&deg;C)</option>
               <option value="sensor_drift">Sensor drift — slow +0.05&deg;C/min on temp</option>
+              <option value="temp_spike_random">FR10 demo: random rare temp spikes</option>
+              <option value="light_spike_burst">FR10 demo: bright light bursts vs day curve</option>
+              <option value="humidity_noise_storm">FR10 demo: high humidity variance (noise)</option>
+              <option value="drift_ramp_fast">FR10 demo: fast temperature ramp (drift)</option>
+              <option value="missing_temp_readings">FR10 demo: intermittent missing temperature</option>
+              <option value="packet_loss">FR10 demo: stream gaps (dropout; stream only)</option>
             </select>
           </div>
           <p style="font-size:10px;color:var(--bark-mid);margin:4px 0 0;line-height:1.45;max-width:36rem;">
@@ -562,8 +674,11 @@
               <input type="checkbox" id="d-dummy-stream" checked>
               Stream dummy data while recording (no Arduino needed)
             </label>
-            <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--bark-mid);">
-              Interval&nbsp;<input class="detail-input" id="d-stream-interval" type="number" min="1" max="300" value="5" style="width:70px;padding:4px 6px;"> s
+            <label style="display:flex;align-items:flex-start;gap:8px;font-size:11px;color:var(--bark-mid);flex-wrap:wrap;">
+              Interval&nbsp;<input class="detail-input" id="d-stream-interval" type="number" min="0.2" step="0.2" max="300" value="1"
+                title="Pi/Arduino sketch posts roughly every 200 ms (about 5 readings per second). Use 0.2 here to mimic that cadence on a capable machine." style="width:72px;padding:4px 6px;">
+              &nbsp;s
+              <span style="opacity:.88;font-size:10px;line-height:1.4;max-width:20rem;">Real bridge cadence is <strong>about 0.2</strong>&nbsp;s (five readings per second). Use <strong>1</strong>&nbsp;s if your laptop slows down.</span>
             </label>
           </div>
 

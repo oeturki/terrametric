@@ -9,7 +9,9 @@ Run with: pytest tests/test_anomaly.py -v
 
 import sys
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -726,6 +728,30 @@ class TestSpikeDetector:
         z_events = [e for e in events if e.detail.get("reason") != "hard_bounds"]
         assert len(z_events) == 0
 
+    def test_light_step_fallback_when_diurnal_variance_masks_mean_z(self, detector):
+        """Wide rolling window variance can hide bursts vs mean; step-vs-previous reading still spikes."""
+        buf = RollingBuffer(max_size=30)
+        base_min = 0
+        vals = []
+        for i in range(16):
+            # Noisy plateau around daytime LED-like raw values (~820–895)
+            l = float(835 + (i % 5) * 12 + ((-1) ** i) * 7)
+            vals.append(l)
+            buf.add("light", make_timestamp(base_min + i), l)
+            buf.add("temperature", make_timestamp(base_min + i), 22.0 + (i % 3) * 0.03)
+            buf.add("humidity", make_timestamp(base_min + i), 50.5 + (i % 4) * 0.08)
+        # Step well above plateau but mean-based z stays modest
+        spike_v = vals[-1] + 425.0
+        reading = make_reading(
+            1,
+            base_min + 16,
+            light=int(min(1023, spike_v)),
+        )
+        events = detector.detect_reading(reading, buf, session_id=1)
+        spikes = [e for e in events if e.anomaly_type == AnomalyType.SPIKE and e.variable == "light"]
+        assert len(spikes) >= 1
+        assert spikes[0].detail.get("basis") in ("prior_window_mean", "step_vs_prior_reading")
+
 
 # ===========================================================================
 # CORRELATION DETECTOR TESTS
@@ -959,3 +985,60 @@ class TestSeasonalDetector:
         events = detector.detect_reading(test_reading, None, session_id=1)
         seasonal_events = [e for e in events if e.anomaly_type == AnomalyType.SEASONAL]
         assert len(seasonal_events) >= 1
+
+
+# ===========================================================================
+# ANOMALY RUNTIME — PERSIST AFTER INGEST
+# ===========================================================================
+
+
+class TestRunDetectionAndPersist:
+    def test_persists_rows_and_strips_timezone(self):
+        from services.anomaly_runtime import run_detection_and_persist
+
+        evt = MagicMock()
+        evt.timestamp = datetime(2026, 4, 7, 12, 0, 0, tzinfo=timezone.utc)
+        evt.anomaly_type.value = "spike"
+        evt.variable = "light"
+        evt.severity.value = "warning"
+        evt.message = "x"
+        evt.detail = None
+
+        db = MagicMock()
+
+        row = SimpleNamespace(
+            id=42,
+            session_id=99,
+            plant_id=1,
+            timestamp=datetime(2026, 4, 7, 12, 0, 30, tzinfo=timezone.utc),
+            temperature=20.0,
+            humidity=50.0,
+            light=900,
+            movement=None,
+            distance=None,
+        )
+
+        with patch("services.anomaly_runtime.get_anomaly_service") as gsm:
+            svc = MagicMock()
+            svc.process_reading.return_value = [evt]
+            gsm.return_value = svc
+
+            run_detection_and_persist(db, row)
+
+        arg_reading = svc.process_reading.call_args[0][0]
+        assert arg_reading.timestamp.tzinfo is None
+
+        db.add.assert_called_once()
+        persisted = db.add.call_args[0][0]
+        assert persisted.created_at.tzinfo is None
+        assert persisted.created_at == datetime(2026, 4, 7, 12, 0, 0)
+        db.commit.assert_called_once()
+
+    def test_no_op_without_plant_id(self):
+        from services.anomaly_runtime import run_detection_and_persist
+
+        db = MagicMock()
+        row = SimpleNamespace(id=1, plant_id=None)
+        run_detection_and_persist(db, row)
+        db.add.assert_not_called()
+        db.commit.assert_not_called()

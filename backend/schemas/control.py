@@ -49,6 +49,7 @@ def merge_profile_from_payload(
         "camera": _merge_channel(base.get("camera", {}), body.camera),
     }
     out["height"] = _sanitize_height_channel(out["height"])
+    out["motion"] = _sanitize_motion_channel(out["motion"])
     return out
 
 
@@ -73,10 +74,22 @@ def _sanitize_height_channel(h: Dict[str, Any]) -> Dict[str, Any]:
     return {"target_cm": target_cm, "interval": interval}
 
 
+def _sanitize_motion_channel(m: Dict[str, Any]) -> Dict[str, Any]:
+    """PIR sampling interval only; strip min/max and any tolerance legacy keys."""
+    try:
+        interval = int((m or {}).get("interval") or 60)
+        if interval < 1:
+            interval = 60
+    except (TypeError, ValueError):
+        interval = 60
+    return {"interval": interval}
+
+
 def normalize_controls_for_api(d: Dict[str, Any]) -> Dict[str, Any]:
-    """Return a copy so GET /api/control always exposes the current height shape."""
+    """Return a copy so GET /api/control exposes canonical height/motion shapes."""
     out = dict(d)
     out["height"] = _sanitize_height_channel(out.get("height") or {})
+    out["motion"] = _sanitize_motion_channel(out.get("motion") or {})
     return out
 
 
@@ -135,21 +148,17 @@ def validate_merged_profile(data: Dict[str, Any]) -> None:
         except (TypeError, ValueError):
             pass
 
-    motion = data.get("motion") or {}
-    mmin, mmax = motion.get("min"), motion.get("max")
-    if mmin is not None and mmax is not None and float(mmin) >= float(mmax):
-        raise ValueError("Invalid motion range (min must be less than max)")
-    mwl, mwh = motion.get("warn_low"), motion.get("warn")
-    if mwl is not None and mwh is not None:
-        try:
-            wl, wh = float(mwl), float(mwh)
-        except (TypeError, ValueError):
-            pass
-        else:
-            if wl >= wh:
-                raise ValueError("Motion tolerance low must be less than tolerance high")
-            if wl < 0 or wh > 1:
-                raise ValueError("Motion soft tolerances must be between 0 and 1 (PIR maps to 0/1)")
+    motion = _sanitize_motion_channel(data.get("motion") or {})
+    try:
+        m_int = int(motion.get("interval") or 0)
+        if m_int <= 0:
+            raise ValueError("Motion interval must be a positive number")
+    except ValueError as e:
+        err = str(e)
+        if "Motion interval" in err:
+            raise
+        raise ValueError("Motion interval must be a positive number") from e
+
     height = data.get("height") or {}
     tg = height.get("target_cm")
     if tg is not None:

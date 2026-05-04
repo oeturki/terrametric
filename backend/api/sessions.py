@@ -72,7 +72,7 @@ def start_session(
             session_id=sess.id,
             plant_id=sess.plant_id,
             scenario=body.scenario or "stable",
-            interval_sec=body.stream_interval_sec or 5,
+            interval_sec=max(0.2, float(body.stream_interval_sec)),
         )
     return _to_out(sess)
 

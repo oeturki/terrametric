@@ -49,11 +49,16 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GeneratedReading:
-    """One synthetic snapshot — matches the keyword args of store_telemetry_row."""
+    """One synthetic snapshot — matches the keyword args of store_telemetry_row.
+
+    ``temperature`` / ``humidity`` / ``light`` may be None to exercise missing-channel
+    paths (dummy stream); movement/height stay populated for realism.
+    """
+
     timestamp: datetime
-    temperature: float
-    humidity: float
-    light: float
+    temperature: Optional[float]
+    humidity: Optional[float]
+    light: Optional[float]
     movement: bool
     distance: float
     plant_height: float
@@ -63,9 +68,16 @@ class GeneratedReading:
 class ScenarioContext:
     """Per-stream state passed to every reading generator so scenarios can
     reference age-since-start (drift, drought ramp, heat spike windows)."""
+
     started_at: datetime
     base_height_cm: float = 5.0  # seedling baseline
     rng: random.Random = None  # type: ignore[assignment]
+    # Nominal seconds between inserts (streaming + backfill).
+    stream_interval_sec: float = 60.0
+    # Rows already persisted before the reading currently being synthesized (streaming + backfill).
+    successful_inserts_prior: int = 0
+    # packet_loss streaming: countdown of insert skips → dropout gaps
+    packet_loss_skip_remaining: int = 0
 
     def __post_init__(self):
         if self.rng is None:
@@ -74,6 +86,27 @@ class ScenarioContext:
 
     def age_minutes(self, now: datetime) -> float:
         return max(0.0, (now - self.started_at).total_seconds() / 60.0)
+
+
+def _approx_reading_index(ctx: ScenarioContext, now: datetime) -> int:
+    """Legacy wall-clock index (backfill pacing); prefer successful_inserts_prior for stream-aligned pulses."""
+
+    step = max(0.2, float(ctx.stream_interval_sec or 60.0))
+    elapsed = max(0.0, (now - ctx.started_at).total_seconds())
+    return int(elapsed // step)
+
+
+def _incoming_insert_ordinal(ctx: ScenarioContext) -> int:
+    """1-based sequence number for the telemetry row currently being formed (prior rows already stored)."""
+
+    return int(ctx.successful_inserts_prior) + 1
+
+
+# Dropout learns median gap over DROPOUT_BASELINE_READINGS from *stored* timestamps only —
+# defer packet bursts until baseline is sane, then skip enough ticks that gap_ratio > multiplier (default 3).
+_PACKET_LOSS_WARMUP_STORES = 35
+_PACKET_LOSS_BURST_SKIP_TICKS = 14
+_PACKET_LOSS_BURST_EVERY_INSERTS = 90
 
 
 def _baseline(now: datetime, ctx: ScenarioContext) -> GeneratedReading:
@@ -115,12 +148,11 @@ def _baseline(now: datetime, ctx: ScenarioContext) -> GeneratedReading:
 
 
 def _heat_spike(now: datetime, ctx: ScenarioContext) -> GeneratedReading:
-    """Every 45 min, push temperature +6 C for a 6-min window — anomaly fodder."""
+    """Sharp periodic temperature pulses aligned to inserts so spikes see a calm prior window."""
     r = _baseline(now, ctx)
-    age = ctx.age_minutes(now)
-    cycle = age % 45.0
-    if cycle < 6.0:
-        r.temperature = round(r.temperature + 6.0, 2)
+    n = _incoming_insert_ordinal(ctx)
+    if n >= 6 and n % 8 == 0 and r.temperature is not None:
+        r.temperature = round(float(r.temperature) + 14.0, 2)
     return r
 
 
@@ -137,16 +169,72 @@ def _drought(now: datetime, ctx: ScenarioContext) -> GeneratedReading:
 def _cold_night(now: datetime, ctx: ScenarioContext) -> GeneratedReading:
     """Push temperature -5 C during dark hours to simulate heater failure."""
     r = _baseline(now, ctx)
-    if r.light < 50.0:
-        r.temperature = round(r.temperature - 5.0, 2)
+    if r.light is not None and float(r.light) < 50.0 and r.temperature is not None:
+        r.temperature = round(float(r.temperature) - 5.0, 2)
     return r
 
 
 def _sensor_drift(now: datetime, ctx: ScenarioContext) -> GeneratedReading:
-    """Linear drift +0.05 C/min on temperature — subtle, accumulates fast."""
+    """Linear creep ~0.06 °C per stored synthetic row (FR10 drift vs reading index)."""
     r = _baseline(now, ctx)
-    r.temperature = round(r.temperature + 0.05 * ctx.age_minutes(now), 2)
+    idx = ctx.successful_inserts_prior
+    if r.temperature is not None:
+        r.temperature = round(float(r.temperature) + 0.06 * idx, 2)
     return r
+
+
+def _temp_spike_random(now: datetime, ctx: ScenarioContext) -> GeneratedReading:
+    """Frequent-but-rare positive temperature spikes vs steady prior window."""
+    r = _baseline(now, ctx)
+    if r.temperature is not None and ctx.rng.random() < 0.12:
+        r.temperature = round(float(r.temperature) + ctx.rng.uniform(11.5, 17.5), 2)
+    return r
+
+
+def _light_spike_burst(now: datetime, ctx: ScenarioContext) -> GeneratedReading:
+    """Large light outliers on periodic inserts + modest RNG — tuned for FR10 spike on light."""
+
+    r = _baseline(now, ctx)
+    n = _incoming_insert_ordinal(ctx)
+    spike = False
+    if n >= 7 and (n % 6 == 0 or n % 11 == 0):
+        spike = True
+    if not spike and n >= 7 and ctx.rng.random() < 0.25:
+        spike = True
+    if spike and r.light is not None:
+        r.light = round(min(1023.0, float(r.light) + ctx.rng.uniform(420.0, 580.0)), 1)
+    return r
+
+
+def _humidity_noise_storm(now: datetime, ctx: ScenarioContext) -> GeneratedReading:
+    """Aggressive RH jitter around nominal → clears noise WARN/CRITICAL over short windows."""
+    r = _baseline(now, ctx)
+    if r.humidity is not None:
+        r.humidity = round(max(0.0, min(100.0, float(r.humidity) + ctx.rng.gauss(0.0, 11.5))), 2)
+    return r
+
+
+def _drift_ramp_fast(now: datetime, ctx: ScenarioContext) -> GeneratedReading:
+    """Steep additive ramp ~0.14 °C per stored row atop baseline diurnal."""
+
+    r = _baseline(now, ctx)
+    idx = ctx.successful_inserts_prior
+    if r.temperature is not None:
+        r.temperature = round(float(r.temperature) + 0.14 * idx, 2)
+    return r
+
+
+def _missing_temp_readings(now: datetime, ctx: ScenarioContext) -> GeneratedReading:
+    """Intermittent DHT-style failures: humidity/light sane, temperature absent."""
+    r = _baseline(now, ctx)
+    if ctx.rng.random() < 0.14:
+        r.temperature = None
+    return r
+
+
+def _packet_loss_baseline(now: datetime, ctx: ScenarioContext) -> GeneratedReading:
+    """Same healthy profile; timestamps gaps for dropout come from skipped inserts in the supervisor."""
+    return _baseline(now, ctx)
 
 
 SCENARIOS: Dict[str, Callable[[datetime, ScenarioContext], GeneratedReading]] = {
@@ -155,6 +243,12 @@ SCENARIOS: Dict[str, Callable[[datetime, ScenarioContext], GeneratedReading]] = 
     "drought": _drought,
     "cold_night": _cold_night,
     "sensor_drift": _sensor_drift,
+    "temp_spike_random": _temp_spike_random,
+    "light_spike_burst": _light_spike_burst,
+    "humidity_noise_storm": _humidity_noise_storm,
+    "drift_ramp_fast": _drift_ramp_fast,
+    "missing_temp_readings": _missing_temp_readings,
+    "packet_loss": _packet_loss_baseline,
 }
 
 
@@ -191,18 +285,19 @@ class StreamSupervisor:
         t = self._tasks.get(session_id)
         return bool(t and not t.done())
 
-    def start(self, session_id: int, plant_id: int, scenario: str, interval_sec: int) -> None:
+    def start(self, session_id: int, plant_id: int, scenario: str, interval_sec: float) -> None:
         """Idempotent — calling start twice for the same session is a no-op."""
         if self.is_streaming(session_id):
             return
         if self._loop is None or self._loop.is_closed():
             logger.warning("dummy_stream: no event loop bound; cannot start session=%s", session_id)
             return
-        ctx = ScenarioContext(started_at=datetime.utcnow())
+        iv = max(0.2, float(interval_sec))
+        ctx = ScenarioContext(started_at=datetime.utcnow(), stream_interval_sec=iv)
         coro = self._run(
             session_id=session_id,
             scenario=scenario or "stable",
-            interval_sec=max(1, int(interval_sec)),
+            interval_sec=iv,
             ctx=ctx,
         )
 
@@ -221,8 +316,10 @@ class StreamSupervisor:
         else:
             self._loop.call_soon_threadsafe(_spawn)
 
-        logger.info("dummy_stream: started session=%s scenario=%s interval=%ss",
-                    session_id, scenario, interval_sec)
+        logger.info(
+            "dummy_stream: started session=%s scenario=%s interval=%.3fs",
+            session_id, scenario, iv,
+        )
 
     def stop(self, session_id: int) -> None:
         task = self._tasks.pop(session_id, None)
@@ -243,7 +340,8 @@ class StreamSupervisor:
         # Allow any pending writes to flush.
         await asyncio.sleep(0)
 
-    async def _run(self, *, session_id: int, scenario: str, interval_sec: int, ctx: ScenarioContext) -> None:
+    async def _run(self, *, session_id: int, scenario: str, interval_sec: float, ctx: ScenarioContext) -> None:
+        iv = max(0.2, float(interval_sec))
         try:
             while True:
                 # Use a fresh DB session per tick — request-scoped sessions
@@ -259,19 +357,30 @@ class StreamSupervisor:
                         # pre-empted it). Self-terminate quietly.
                         logger.info("dummy_stream: session=%s closed externally, exiting", session_id)
                         return
-                    reading = generate_reading(scenario, datetime.utcnow(), ctx)
-                    store_telemetry_row(
-                        db,
-                        temperature=reading.temperature,
-                        humidity=reading.humidity,
-                        movement=reading.movement,
-                        light=reading.light,
-                        distance=reading.distance,
-                        plant_height=reading.plant_height,
-                        timestamp=reading.timestamp,
-                        plant_id=sess.plant_id,
-                    )
-                await asyncio.sleep(interval_sec)
+                    if scenario == "packet_loss" and ctx.packet_loss_skip_remaining > 0:
+                        ctx.packet_loss_skip_remaining -= 1
+                    else:
+                        reading = generate_reading(scenario, datetime.utcnow(), ctx)
+                        store_telemetry_row(
+                            db,
+                            temperature=reading.temperature,
+                            humidity=reading.humidity,
+                            movement=reading.movement,
+                            light=reading.light,
+                            distance=reading.distance,
+                            plant_height=reading.plant_height,
+                            timestamp=reading.timestamp,
+                            plant_id=sess.plant_id,
+                        )
+                        ctx.successful_inserts_prior += 1
+                        if scenario == "packet_loss":
+                            n = ctx.successful_inserts_prior
+                            if (
+                                n >= _PACKET_LOSS_WARMUP_STORES
+                                and n % _PACKET_LOSS_BURST_EVERY_INSERTS == 0
+                            ):
+                                ctx.packet_loss_skip_remaining = _PACKET_LOSS_BURST_SKIP_TICKS
+                await asyncio.sleep(iv)
         except asyncio.CancelledError:
             return
         except Exception:
@@ -293,7 +402,7 @@ def backfill_history(
     plant_id: int,
     hours: int,
     scenario: str,
-    interval_sec: int = 60,
+    interval_sec: float = 60.0,
 ) -> int:
     """
     Insert back-dated telemetry for ``plant_id`` covering the past ``hours``.
@@ -304,11 +413,10 @@ def backfill_history(
     """
     from models.reading import Telemetry
 
-    if interval_sec < 1:
-        interval_sec = 1
+    step = max(0.2, float(interval_sec))
     end = datetime.utcnow()
     start = end - timedelta(hours=hours)
-    ctx = ScenarioContext(started_at=start)
+    ctx = ScenarioContext(started_at=start, stream_interval_sec=step)
 
     rows = []
     cursor = start
@@ -327,7 +435,8 @@ def backfill_history(
                 plant_height=r.plant_height,
             )
         )
-        cursor += timedelta(seconds=interval_sec)
+        ctx.successful_inserts_prior += 1
+        cursor += timedelta(seconds=step)
 
     if rows:
         db.bulk_save_objects(rows)

@@ -33,4 +33,5 @@ class RecordingSession(Base):
     # generator to use. Real Arduino sessions leave dummy_stream=False.
     scenario = Column(String(32), nullable=True)
     dummy_stream = Column(Boolean, nullable=False, server_default="False")
-    stream_interval_sec = Column(Integer, nullable=True)
+    # Stored as float so sub-second dummy cadence can match Arduino (~200ms) when desired.
+    stream_interval_sec = Column(Float, nullable=True)

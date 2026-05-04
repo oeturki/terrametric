@@ -16,25 +16,23 @@ const CONFIG = {
   // ── Default thresholds ─────────────────────────────
   //    (can also be changed live on the Control Variables page)
   DEFAULTS: {
-    temp_min: 20,
-    temp_max: 30,
-    temp_warn_high: 35,  // high °C (soft, Home)
-    temp_warn_low: 10,  // low °C 
-    temp_int: 60,   // seconds
-    hum_min: 20,
-    hum_max: 65,
-    hum_warn_high: 80,   // %
-    hum_warn_low: 10,    // %
-    hum_interval: 30, // seconds
-    light_min: 5000,
-    light_max: 25000,
-    light_warn_high: 30000,  // lux
-    light_warn_low: 3000,
-    light_interval: 15, // seconds
-    motion_min: 0,
-    motion_max: 1,
-    motion_interval: 10, // seconds
-    height_interval: 120,   // seconds (telemetry chart refresh cue)
+    temp_min: 18,
+    temp_max: 26,
+    temp_warn_low: 16,
+    temp_warn_high: 28,
+    temp_int: 120,
+    hum_min: 40,
+    hum_max: 60,
+    hum_warn_low: 35,
+    hum_warn_high: 68,
+    hum_interval: 120,
+    light_min: 200,
+    light_max: 2500,
+    light_warn_low: 120,
+    light_warn_high: 3200,
+    light_interval: 120,
+    motion_interval: 60,
+    height_interval: 1440,
     cam_on_motion: 1,
     cam_on_alert: 1,
     cam_interval: 60,
@@ -193,10 +191,8 @@ async function fetchControls() {
       document.getElementById("int-light").value = data.light.interval ?? "";
     }
 
-    // Motion
+    // Motion — interval only (PIR binary; no desired/tolerance persisted)
     if (data.motion){
-      document.getElementById("motion-min").value = data.motion.min ?? "";
-      document.getElementById("motion-max").value = data.motion.max ?? "";
       document.getElementById("int-motion").value = data.motion.interval ?? "";
     }
 
@@ -277,8 +273,6 @@ function getControlData() {
     },
 
     motion: {
-      min: parseFloat(document.getElementById("motion-min").value),
-      max: parseFloat(document.getElementById("motion-max").value),
       interval: parseInt(document.getElementById("int-motion").value, 10)
     },
 
@@ -437,10 +431,7 @@ function validateControls(data) {
 
   const tWl = data.temperature.warn_low;
   const tWh = data.temperature.warn_high != null ? data.temperature.warn_high : data.temperature.warn;
-  if (tWh != null && !isNaN(tWh) && tWh > data.temperature.max) {
-    alert("Temperature tolerance (high) cannot exceed desired max");
-    return false;
-  }
+
   if (tWl != null && !isNaN(tWl) && tWh != null
       && !isNaN(tWh) && tWl >= tWh) {
     alert("Temperature tolerance low must be less than tolerance high");
@@ -504,27 +495,9 @@ function validateControls(data) {
     return false;
   }
 
-  // ── Motion ──
-  if (isNaN(data.motion.min) || isNaN(data.motion.max)) {
-    alert("Motion range must be numbers");
-    return false;
-  }
-  if (data.motion.min >= data.motion.max) {
-    alert("Motion min must be less than max");
-    return false;
-  }
-  const mW = data.motion.warn_high != null ? data.motion.warn_high : data.motion.warn;
-  const mWl = data.motion.warn_low;
-  if (mWl != null && !isNaN(mWl) && mW != null && !isNaN(mW) && mWl >= mW) {
-    alert("Motion tolerance low must be less than tolerance high");
-    return false;
-  }
-  if (mWl != null && !isNaN(mWl) && (mWl < 0 || mWl > 1)) {
-    alert("Motion tolerance (low) must be between 0 and 1");
-    return false;
-  }
-  if (mW != null && !isNaN(mW) && (mW < 0 || mW > 1)) {
-    alert("Motion tolerance (high) must be between 0 and 1");
+  // ── Motion (interval only) ──
+  if (isNaN(data.motion.interval) || data.motion.interval <= 0) {
+    alert("Motion interval must be a positive number");
     return false;
   }
 
@@ -541,12 +514,6 @@ function validateControls(data) {
   // ── Camera ──
   if (isNaN(data.camera.interval) || data.camera.interval <= 0) {
     alert("Camera interval must be a positive number");
-    return false;
-  }
-
-  // ── Motion (optional but good) ──
-  if (isNaN(data.motion.interval) || data.motion.interval <= 0) {
-    alert("Motion interval must be a positive number");
     return false;
   }
 

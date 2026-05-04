@@ -61,8 +61,8 @@ def _row(temp: float | None, hum: float | None) -> Telemetry:
 
 def test_breach_posts_on_recovery_posts_off(fake_db, patched_enabled, capture_posts):
     db = fake_db
-    hot = _row(35.0, 30.0)  # default max temp 30
-    ok = _row(22.0, 30.0)
+    hot = _row(35.0, 30.0)  # exceeds default desired temp max (26 °C); humidity irrelevant for temp-led breach path
+    ok = _row(22.0, 50.0)  # both channels inside desired bands (humidity 40–60 %RH)
     avs.process_auto_ventilation_after_commit(db, plant_id=1, session_id=1, row=hot)
     assert capture_posts == [{"on": True, "spin": True}]
     avs.process_auto_ventilation_after_commit(db, plant_id=1, session_id=1, row=ok)
@@ -82,7 +82,7 @@ def test_no_session_skips(monkeypatch, fake_db, patched_enabled, capture_posts):
 def test_manual_activate_blocks_auto_off(fake_db, patched_enabled, capture_posts):
     db = fake_db
     hot = _row(35.0, 30.0)
-    ok = _row(22.0, 30.0)
+    ok = _row(22.0, 50.0)
     avs.process_auto_ventilation_after_commit(db, plant_id=1, session_id=1, row=hot)
     avs.notify_manual_vent_success(turn_on=True)
     avs.process_auto_ventilation_after_commit(db, plant_id=1, session_id=1, row=ok)
@@ -92,7 +92,7 @@ def test_manual_activate_blocks_auto_off(fake_db, patched_enabled, capture_posts
 def test_manual_deactivate_suppresses_then_clears_on_recovery(fake_db, patched_enabled, capture_posts):
     db = fake_db
     hot = _row(35.0, 30.0)
-    ok = _row(22.0, 30.0)
+    ok = _row(22.0, 50.0)
     avs.process_auto_ventilation_after_commit(db, plant_id=1, session_id=1, row=hot)
     avs.notify_manual_vent_success(turn_on=False)
     avs.process_auto_ventilation_after_commit(db, plant_id=1, session_id=1, row=hot)
@@ -117,7 +117,7 @@ def test_reconcile_after_profile_save_turns_off_using_latest_row(
     monkeypatch.setattr(avs, "get_open_session_for_plant", lambda *_a, **_k: Sess())
 
     hot = _row(35.0, 30.0)
-    ok = _row(22.0, 30.0)
+    ok = _row(22.0, 50.0)
     rows: list[Telemetry] = [ok]
     qmock = MagicMock()
     qmock.filter.return_value = qmock
