@@ -1,144 +1,63 @@
-# Group 14 - Integrated Environmental Control & Research Integrity System
+# TerraMetric
 
-An IoT-based environmental monitoring and control system for plant and GMO research in indoor growing environments. The system combines continuous environmental sensing, automated regulation, and research-grade data logging into a single platform.
+A plant monitoring system for controlled greenhouse environments, built as a Cardiff University group project (CM2305, Group 14). It tracks temperature, humidity and light in real time, shows them on a live web dashboard and raises alerts when readings drift out of range.
 
-## Architecture
+> This is a team project. The "My contribution" section below says exactly which parts I (Osamah Eturki) built. Everything else was written by my teammates.
 
-```
-Arduino (sensors)
-    |
-    | JSON via Bluetooth
-    v
-Raspberry Pi
-    |
-    +--> Node-RED --> MQTT --> ThingsBoard CE (live telemetry dashboard)
-    |
-    +--> Python Backend (FastAPI)
-              |
-              +--> Database (SQLite / PostgreSQL)
-              |
-              +--> Custom React Dashboard (advanced features)
-```
+## What it does
 
-## Project Structure
+- Reads temperature/humidity, motion and light sensors from an Arduino inside a 3D-printed greenhouse
+- Sends the readings through a Raspberry Pi and Node-RED to a FastAPI backend that stores and serves them
+- Shows live data on a web dashboard, with thresholds researchers can set per plant
+- Turns sensor readings into a single 0-100 stability score (ESI) that non-technical users can read at a glance
+- Lets researchers export their data as CSV for traceable evidence
+
+## How the data flows
 
 ```
-group-14-cm2305-2211/
-|
-├── arduino/                        # Embedded firmware
-│   ├── arduino_bluetooth/          # Main sensor sketch (DHT11, PIR, LDR, Ultrasonic)
-│   └── Group14Project/             # Legacy sketch
-|
-├── node-red/                       # Gateway middleware
-│   └── flows.json                  # Export from Pi's Node-RED
-|
-├── backend/                        # Python backend (FastAPI)
-│   ├── main.py                     # App entry point
-│   ├── config.py                   # Setpoints, thresholds, DB config
-│   ├── database.py                 # DB engine setup
-│   ├── api/                        # REST API routes
-│   │   ├── telemetry.py            # FR1/FR2
-│   │   ├── alerts.py               # FR3
-│   │   ├── control.py              # FR4
-│   │   ├── camera.py               # FR5
-│   │   ├── auth.py                 # FR6
-│   │   ├── plants.py               # FR7
-│   │   ├── sessions.py             # Session management
-│   │   └── reports.py              # FR11
-│   ├── services/                   # Business logic
-│   │   ├── telemetry_service.py    # FR1/FR2: Ingest + query readings
-│   │   ├── alert_service.py        # FR3: Threshold detection
-│   │   ├── control_service.py      # FR4: Feedback control
-│   │   ├── camera_service.py       # FR5: Image capture
-│   │   ├── plant_service.py        # FR7: QR + plant tracking
-│   │   ├── esi_service.py          # FR8: Environmental Stability Index
-│   │   ├── stress_service.py       # FR9: Cumulative stress
-│   │   ├── anomaly_service.py      # FR10: Spike/drift/gap detection
-│   │   └── report_service.py       # FR11: Integrity reports
-│   ├── models/                     # Database models
-│   └── simulation/                 # Simulation & replay engine
-│       ├── simulator.py            # Synthetic data generator
-│       ├── replay.py               # Session replay
-│       └── datasets/               # Test scenario data files
-|
-├── frontend/                       # React web app (Vite)
-│   ├── src/
-│   │   ├── components/             # UI components (one per feature)
-│   │   ├── pages/                  # Dashboard, Sessions, Plants, Reports, Login
-│   │   └── services/api.js         # HTTP client
-│   ├── package.json
-│   └── vite.config.js
-|
-├── tests/                          # Validation tests (pytest)
-│   ├── test_esi.py                 # FR8
-│   ├── test_stress.py              # FR9
-│   ├── test_anomaly.py             # FR10
-│   ├── test_alerts.py              # FR3
-│   ├── test_reports.py             # FR11
-│   └── test_simulation.py          # Simulation pipeline
-|
-└── docs/
-    ├── architecture.md
-    └── setup-guide.md
+Arduino sensors -> Raspberry Pi -> Node-RED -> FastAPI backend -> Web dashboard
 ```
 
-## Team Responsibilities(Ignore this one as it is AI generated, make changes to it for it to reflect your current responsibilities)
+## My contribution
 
-| Member    | Area                              | Key Files                                              |
-|-----------|-----------------------------------|--------------------------------------------------------|
-| Omer      | Anomaly detection + Simulation    | `services/anomaly_service.py`, `simulation/`, tests    |
-| Bo        | Telemetry, ESI, Stress metrics    | `services/telemetry_service.py`, `esi_service.py`, `stress_service.py` |
-| Harini    | Alerts + Documentation            | `services/alert_service.py`, `api/alerts.py`, `docs/`  |
-| Chris     | Frontend dashboard                | `frontend/src/`, components, pages                      |
-| Jena      | Reports + Visualisation           | `services/report_service.py`, `ReportViewer.jsx`        |
-| Mohammed  | Control logic + NFR validation    | `services/control_service.py`, `api/control.py`         |
-| Osamah    | Camera + Plant tracking           | `services/camera_service.py`, `plant_service.py`        |
+**Student:** Osamah Eturki
 
-## Quick Start
+- **Web dashboard (HTML / CSS / JavaScript).** I built the single-page dashboard in `frontend/` (`index.html`, `js/`, `css/`): Home, View Data, Control Variables and Manage Samples pages.
+  - Live telemetry chart that refreshes without a page reload
+  - Stability score gauge for non-technical users
+  - Per-sensor threshold controls with input validation
+  - CSV export on the View Data page
+  - A single `config.js` file is the only thing you edit to deploy it somewhere new. This made switching devices at short notice during the demo take about ten seconds.
+- **Sensor wiring.** I wired the temperature/humidity, motion and light sensors to the Arduino inside the enclosure and tested each one before handing over to the backend team.
+- **Risk register.** I wrote and presented the project risk register (hardware, software and team risks) for the funding pitch.
+- **Pitch and demo.** I designed the 11 slides for the sales pitch, presented the deployment roadmap, and helped film and edit the demo video.
 
-### Backend
+## Team
+
+TerraMetric was built by Group 14 at Cardiff University: Omer Azhar, Harini Ramesh, Bo Song, Jena Charles, Christopher Thurman, Muhammad Azhar and Osamah Eturki.
+
+Everything outside the parts listed in "My contribution" was built by my teammates. The commit history shows who wrote each part.
+
+## Running it
+
+You need Python 3.
 
 ```bash
 cd backend
-python -m venv venv
-venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn main:app --reload
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-### Frontend
+Then open http://127.0.0.1:8000/ . The backend serves the dashboard too. On Windows you can double-click `run_dashboard.bat` instead.
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+To point the dashboard at a different machine (for example the Raspberry Pi), edit `PI_IP` and `PORT` in `frontend/js/config.js`.
 
-### Arduino
+## What I would improve
 
-Open `arduino/arduino_bluetooth/arduino_bluetooth.ino` in Arduino IDE and upload.
+- Automated UI tests. Testing the dashboard is currently manual, so a backend API change could break it unnoticed.
+- Lazy-load the page fragments so they only load when you navigate to them, instead of all at startup.
+- Agree API data formats in the first sprint. Late format mismatches between hardware, backend and frontend cost us time near the deadline.
 
-### Tests
+## What I learned
 
-```bash
-pytest tests/
-```
-
-See `docs/setup-guide.md` for full setup instructions.
-
-## Functional Requirements
-
-| ID   | Requirement                          | Status |
-|------|--------------------------------------|--------|
-| FR1  | Environmental Monitoring             | Scaffold |
-| FR2  | Data Logging & Visualisation         | Scaffold |
-| FR3  | Alerts & Early Warning               | Scaffold |
-| FR4  | Automated Environmental Control      | Scaffold |
-| FR5  | Camera-Based Visual Monitoring       | Scaffold |
-| FR6  | User & Data Management               | Scaffold |
-| FR7  | Plant / Sample Identification        | Scaffold |
-| FR8  | Environmental Stability Index (ESI)  | Scaffold |
-| FR9  | Cumulative Stress Tracking           | Scaffold |
-| FR10 | Anomaly Detection Layer              | Scaffold |
-| FR11 | Session Integrity Report             | Scaffold |
-| FR12 | Time-in-Tolerance Visual Overlay     | Scaffold |
+Test wireless hardware (Bluetooth) in the very first session, agree data formats early, and build for how something will actually be used rather than just whether it works.
