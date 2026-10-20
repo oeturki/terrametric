@@ -111,7 +111,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
 
     # Proxy to the Pi hardware agent (see `pi/hardware_agent.py`). Set on the *laptop* Uvicorn host only.
-    HARDWARE_PI_BASE: str = ""  # e.g. http://10.4.247.246:8765 when hardware_agent runs on the Pi LAN IP
+    HARDWARE_PI_BASE: str = ""  # e.g. http://PI_IP_ADDRESS:8765 when hardware_agent runs on the Pi LAN IP
     HARDWARE_PI_KEY: str = ""  # same as DEVICE_KEY on the Pi; never expose to the browser
 
     # When Pi is configured, turn ventilation on/off from desired band during active recording sessions.
